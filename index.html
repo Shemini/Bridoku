@@ -5,16 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Bridoku</title>
 <meta name="description" content="Rompecabezas de lógica en una boda: ¿quién mató al novio? Un caso nuevo cada día.">
-<meta name="theme-color" content="#14121a">
+<meta name="theme-color" content="#f6efdc">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Bridoku">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme-bridoku.css">
+<link rel="preload" href="fonts/pixelify-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
 <div id="app">
@@ -22,7 +24,7 @@
   <section id="screen-play" class="screen"></section>
   <div id="loading" class="loading" aria-live="polite">
     <div class="loading-card">
-      <div class="magnifier" aria-hidden="true">🔍</div>
+      <div class="magnifier" aria-hidden="true"><img src="sprites/ui/icon_lupa.png" alt=""></div>
       <div id="loading-text">Investigando el caso…</div>
     </div>
   </div>

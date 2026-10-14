@@ -27,6 +27,15 @@ const SP = new Set();
 const spKey = (kind, id) => kind + '/' + id;
 const has = (kind, id) => SP.has(spKey(kind, id));
 const spUrl = (kind, id) => `sprites/${kind}/${id}.png`;
+// [Tema pixel] icono de interfaz (sprites/ui/icon_<nombre>.png)
+const uiImg = (n) => `<img class="ui sp" src="${spUrl('ui', 'icon_' + n)}" alt="" draggable="false">`;
+// [Tema pixel] color de letra legible (blanco o ciruela) sobre el color de un personaje
+function textOn(hex) {
+  const h = hex.replace('#', '');
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const L = 0.2126 * lin(parseInt(h.slice(0, 2), 16)) + 0.7152 * lin(parseInt(h.slice(2, 4), 16)) + 0.0722 * lin(parseInt(h.slice(4, 6), 16));
+  return (1.05 / (L + 0.05)) >= ((L + 0.05) / 0.0728) ? '#fffdf6' : '#2d2540';
+}
 
 async function probeSprites() {
   const jobs = [];
@@ -48,7 +57,7 @@ function avatar(cid, opts = {}) {
   const dead = opts.dead && has('characters', cid + '_dead');
   const id = dead ? cid + '_dead' : cid;
   if (has('characters', id)) return `<img class="av sp" src="${spUrl('characters', id)}" alt="${esc(c.name)}" draggable="false">`;
-  return `<span class="badge" style="--c:${c.color}">${esc(c.mark)}</span>`;
+  return `<span class="badge" style="--c:${c.color};--fg:${textOn(c.color)}">${esc(c.mark)}</span>`;
 }
 function itemIcon(id) {
   const it = CONTENT.itemMap[id];
@@ -61,7 +70,7 @@ function itemIcon(id) {
 function pchip(i) {
   const c = CONTENT.charMap[G.puz.persons[i]];
   const v = i === G.puz.victim;
-  return `<b class="pc${v ? ' v' : ''}" data-act="pick" data-p="${i}" style="--c:${c.color}">${esc(c.name)}${v ? ' †' : ''}</b>`;
+  return `<b class="pc${v ? ' v' : ''}" data-act="pick" data-p="${i}" style="--c:${c.color};--fg:${textOn(c.color)}">${esc(c.name)}${v ? ' †' : ''}</b>`;
 }
 function tokensHTML(tokens) {
   const puz = G.puz;
@@ -316,8 +325,8 @@ function renderPlayShell() {
       <button class="icon-btn" data-act="home" aria-label="Menú">‹</button>
       <div class="ttl">${num}<small>${esc(dLabel(puz.diff))}</small></div>
       <div class="timer" id="timer"></div>
-      <button class="icon-btn" data-act="hint" aria-label="Pista">💡</button>
-      <button class="icon-btn" data-act="check" aria-label="Revisar">✔︎</button>
+      <button class="icon-btn" data-act="hint" aria-label="Pista">${uiImg('pista')}</button>
+      <button class="icon-btn" data-act="check" aria-label="Revisar">${uiImg('comprobar')}</button>
       <button class="icon-btn" data-act="howto" aria-label="Ayuda">?</button>
     </div>
     <div class="casestrip">
@@ -412,7 +421,7 @@ function openingsHTML() {
   const seg = (x, bit, cls) => {
     const r = (x / N) | 0, c = x % N;
     let key, style;
-    const T = 7; // grosor en px
+    const T = 10; // grosor en px
     if (bit === 1 || bit === 4) {
       const yy = bit === 1 ? r : r + 1;
       key = 'h' + yy + ',' + c;
@@ -442,7 +451,7 @@ function pencilHTML(mask) {
   G.puz.persons.forEach((cid, p) => {
     if (!(mask & (1 << p))) return;
     const c = CONTENT.charMap[cid];
-    s += `<i style="--c:${c.color};grid-row:${((p / 3) | 0) + 1};grid-column:${(p % 3) + 1}">${esc(c.mark)}</i>`;
+    s += `<i style="--c:${c.color};--fg:${textOn(c.color)};grid-row:${((p / 3) | 0) + 1};grid-column:${(p % 3) + 1}">${esc(c.mark)}</i>`;
   });
   return `<div class="pm">${s}</div>`;
 }
@@ -479,7 +488,7 @@ function drawBoard() {
     else if (p < 0 && (lines.rows.has(r) || lines.cols.has(c))) inner += '<div class="dim"></div>';
     if (p >= 0) {
       const isV = p === puz.victim;
-      inner += `<div class="tok${isV ? ' vic' : ''}">${avatar(puz.persons[p], { dead: isV })}${G.lock[i] ? '<span class="pin">💡</span>' : ''}</div>`;
+      inner += `<div class="tok${isV ? ' vic' : ''}">${avatar(puz.persons[p], { dead: isV })}${G.lock[i] ? `<span class="pin">${uiImg('pista')}</span>` : ''}</div>`;
     } else if (G.pen[i]) {
       inner += pencilHTML(G.pen[i]);
     }
@@ -532,11 +541,11 @@ function drawModebar() {
 function drawTools() {
   const full = G.sol.filter((p) => p >= 0).length === G.puz.N && new Set(G.sol.filter((p) => p >= 0)).size === G.puz.N;
   $('#tools').innerHTML = `
-    <button class="tbtn${U.tool === 'sol' && U.pen ? ' on' : ''}" data-act="tool" data-t="pen"><i>✏️</i>Lápiz</button>
-    <button class="tbtn${U.tool === 'empty' ? ' on' : ''}" data-act="tool" data-t="empty"><i>⬛</i>Vacía</button>
-    <button class="tbtn${U.tool === 'erase' ? ' on' : ''}" data-act="tool" data-t="erase"><i>🧽</i>Borrar</button>
-    <button class="tbtn" data-act="undo" ${G.undo.length ? '' : 'disabled'}><i>↶</i>Deshacer</button>
-    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}" data-act="accuse"><i>🔎</i>Acusar</button>`;
+    <button class="tbtn${U.tool === 'sol' && U.pen ? ' on' : ''}" data-act="tool" data-t="pen"><i>${uiImg('lapiz')}</i>Lápiz</button>
+    <button class="tbtn${U.tool === 'empty' ? ' on' : ''}" data-act="tool" data-t="empty"><i>${uiImg('vacio')}</i>Vacía</button>
+    <button class="tbtn${U.tool === 'erase' ? ' on' : ''}" data-act="tool" data-t="erase"><i>${uiImg('goma')}</i>Borrar</button>
+    <button class="tbtn" data-act="undo" ${G.undo.length ? '' : 'disabled'}><i>${uiImg('deshacer')}</i>Deshacer</button>
+    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}" data-act="accuse"><i>${uiImg('lupa')}</i>Acusar</button>`;
 }
 
 function drawClues() {
@@ -544,7 +553,7 @@ function drawClues() {
   const top = ul.scrollTop;
   const puz = G.puz;
   const vic = CONTENT.charMap[puz.persons[puz.victim]];
-  const rule = `<li class="clue rule"><div class="ctext">${pchip(puz.victim)} estaba a solas con su asesino: en su habitación solo había otra persona.</div><span class="chk rule-ico">💀</span></li>`;
+  const rule = `<li class="clue rule"><div class="ctext">${pchip(puz.victim)} estaba a solas con su asesino: en su habitación solo había otra persona.</div><span class="chk rule-ico">${uiImg('calavera')}</span></li>`;
   ul.innerHTML = rule + puz.clues.map((c, i) => {
     const toks = clueTokens(c, puz, CONTENT);
     return `<li class="clue${G.done[i] ? ' done' : ''}${U.activeClue === i ? ' active' : ''}" data-act="clue" data-i="${i}">
@@ -820,9 +829,9 @@ function openHowto() {
     <h4>Cómo se marca</h4>
     <ul>
       <li><b>Colocar:</b> toca un personaje y luego su casilla. Tocar otra vez la misma casilla lo quita.</li>
-      <li><b>✏️ Lápiz:</b> con un personaje elegido, anota dónde <i>podría</i> estar. Tocar de nuevo borra la marca. Las marcas se conservan debajo de una solución y reaparecen si la quitas.</li>
-      <li><b>⬛ Vacía:</b> oscurece casillas donde estás seguro de que no hay nadie.</li>
-      <li><b>🧽 Borrar:</b> vacía por completo cada casilla que toques.</li>
+      <li><b>${uiImg('lapiz')} Lápiz:</b> con un personaje elegido, anota dónde <i>podría</i> estar. Tocar de nuevo borra la marca. Las marcas se conservan debajo de una solución y reaparecen si la quitas.</li>
+      <li><b>${uiImg('vacio')} Vacía:</b> oscurece casillas donde estás seguro de que no hay nadie.</li>
+      <li><b>${uiImg('goma')} Borrar:</b> vacía por completo cada casilla que toques.</li>
       <li>Las filas y columnas de cada solución se oscurecen solas; si dos soluciones chocan o repites personaje, se marcan en <b style="color:#ff8b7d">rojo</b>.</li>
       <li>Toca una pista para ver en el plano a qué se refiere; con ✓ la tachas.</li>
     </ul>
