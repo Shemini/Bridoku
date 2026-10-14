@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Murdoku</title>
+<meta name="description" content="Rompecabezas de lógica: encuentra al asesino. Un caso nuevo cada día.">
+<meta name="theme-color" content="#14121a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Murdoku">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <section id="screen-home" class="screen"></section>
+  <section id="screen-play" class="screen"></section>
+  <div id="loading" class="loading" aria-live="polite">
+    <div class="loading-card">
+      <div class="magnifier" aria-hidden="true">🔍</div>
+      <div id="loading-text">Investigando el caso…</div>
+    </div>
+  </div>
+  <div id="sheet-bg" class="sheet-bg"></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head"><h2 id="sheet-title"></h2><button class="icon-btn" data-act="close-sheet" aria-label="Cerrar">✕</button></div>
+    <div id="sheet-body" class="sheet-body"></div>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+</div>
+<noscript>Este juego necesita JavaScript.</noscript>
+<script type="module" src="app.js"></script>
+</body>
+</html>
