@@ -3,7 +3,7 @@
 // ============================================================================
 import { CONTENT } from './content.js';
 import { DIFFICULTIES } from './engine.js';
-import { clueTokens, clueRefs, roomText, itemText, weaponText } from './texts.js';
+import { clueTokens, clueRefs, roomText, itemText, openingText } from './texts.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -12,13 +12,15 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sin espacio */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* nada */ } },
 };
+const SAVE_V = 2;
 
 // ------------------------------------------------------------------ Estado
 const DEFAULTS = { rowcol: true, conflicts: true, vibrate: true, timer: true, autofs: true, seenHowto: false };
 const settings = Object.assign({}, DEFAULTS, LS.get('mdk.settings', {}));
 let stats = LS.get('mdk.stats', { solved: {}, daily: {} });
 let G = null;                         // partida en curso
-const U = { sel: -1, hl: null, hlTimer: 0, acc: { m: -1, w: '' }, tick: 0 }; // interfaz
+// sel: personaje seleccionado · tool: 'sol' (colocar) | 'pen' (lápiz) | 'erase' (borrar) | 'empty' (marcar vacía)
+const U = { sel: -1, tool: 'sol', pen: false, hl: null, hlTimer: 0, acc: -1, tick: 0, activeClue: -1 };
 
 // ----------------------------------------------------------------- Sprites
 const SP = new Set();
@@ -36,8 +38,6 @@ async function probeSprites() {
   }));
   CONTENT.CHARACTERS.forEach((c) => { add('characters', c.id); add('characters', c.id + '_dead'); });
   CONTENT.ITEMS.forEach((i) => add('items', i.id));
-  CONTENT.WEAPONS.forEach((w) => add('weapons', w.id));
-  CONTENT.DECOR.forEach((d) => add('decor', d.id));
   CONTENT.ROOM_TYPES.forEach((r) => add('floors', r.id));
   await Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 2500))]);
 }
@@ -48,18 +48,20 @@ function avatar(cid, opts = {}) {
   const dead = opts.dead && has('characters', cid + '_dead');
   const id = dead ? cid + '_dead' : cid;
   if (has('characters', id)) return `<img class="av sp" src="${spUrl('characters', id)}" alt="${esc(c.name)}" draggable="false">`;
-  return `<span class="badge" style="--c:${c.color}">${esc(c.name[0])}</span>`;
+  return `<span class="badge" style="--c:${c.color}">${esc(c.mark)}</span>`;
 }
-function thingVis(id, cls = '') {
-  const w = CONTENT.weaponMap[id];
-  const kind = w ? 'weapons' : 'items';
-  const def = w || CONTENT.itemMap[id];
-  if (has(kind, id)) return `<img class="sp ${cls}" src="${spUrl(kind, id)}" alt="" draggable="false">`;
-  return `<span class="em ${cls}">${def ? def.emoji : '?'}</span>`;
+function itemIcon(id) {
+  const it = CONTENT.itemMap[id];
+  if (has('items', id)) return `<img class="sp" src="${spUrl('items', id)}" alt="">`;
+  if (it && it.emoji) return `<span class="em">${it.emoji}</span>`;
+  if (id === 'alfombra') return '<span class="em sw carpet-sw"></span>';
+  if (id === 'mesa' || id === 'mesa_larga') return '<span class="em sw table-sw"></span>';
+  return `<span class="em sw ${id}-sw"></span>`;
 }
 function pchip(i) {
-  const cid = G.puz.persons[i], c = CONTENT.charMap[cid];
-  return `<b class="pc${i === G.puz.victim ? ' v' : ''}" data-act="pick" data-p="${i}" style="--c:${c.color}">${esc(c.name)}${i === G.puz.victim ? ' †' : ''}</b>`;
+  const c = CONTENT.charMap[G.puz.persons[i]];
+  const v = i === G.puz.victim;
+  return `<b class="pc${v ? ' v' : ''}" data-act="pick" data-p="${i}" style="--c:${c.color}">${esc(c.name)}${v ? ' †' : ''}</b>`;
 }
 function tokensHTML(tokens) {
   const puz = G.puz;
@@ -67,8 +69,9 @@ function tokensHTML(tokens) {
     switch (t.k) {
       case 'p': return pchip(t.i);
       case 'room': return `<span class="rc" style="--c:${CONTENT.roomTypeMap[puz.roomTypes[t.r]].color}">${esc(roomText(t.r, puz, CONTENT, t))}</span>`;
-      case 'item': return `<span class="ic">${thingVis(t.id, 'em')}${esc(itemText(t.id, CONTENT))}</span>`;
-      case 'w': return `<span class="ic w">${thingVis(t.id, 'em')}${esc(weaponText(t.id, CONTENT, t))}</span>`;
+      case 'item': return `<span class="ic${CONTENT.itemMap[t.id].walk ? ' walk' : ''}">${itemIcon(t.id)}${esc(itemText(t.id, CONTENT, t))}</span>`;
+      case 'win': return `<span class="ic op win"><span class="em sw win-sw"></span>${esc(openingText(t))}</span>`;
+      case 'door': return `<span class="ic op door"><span class="em sw door-sw"></span>${esc(openingText(t))}</span>`;
       default: return esc(t.s);
     }
   }).join('');
@@ -100,6 +103,7 @@ function streak() {
   return n;
 }
 const dLabel = (d) => DIFFICULTIES[d].label + ' · ' + DIFFICULTIES[d].N + '×' + DIFFICULTIES[d].N;
+const pname = (p) => CONTENT.charMap[G.puz.persons[p]].name;
 
 // ------------------------------------------------------------ Generación
 let worker = null, reqId = 0;
@@ -130,7 +134,7 @@ async function generate(diff, seed) {
   return generatePuzzle(CONTENT, diff, seed);
 }
 
-const LOAD_MSGS = ['Investigando el caso…', 'Interrogando a los sospechosos…', 'Rastreando huellas…', 'Comprobando coartadas…', 'Cerrando las puertas de la mansión…'];
+const LOAD_MSGS = ['Investigando el caso…', 'Interrogando a los sospechosos…', 'Midiendo las habitaciones…', 'Comprobando coartadas…', 'Cerrando las puertas de la mansión…'];
 async function withLoading(fn) {
   const el = $('#loading'), tx = $('#loading-text');
   let i = 0;
@@ -141,12 +145,14 @@ async function withLoading(fn) {
 
 // --------------------------------------------------------- Guardar / cargar
 function newGameFrom(puz, kind, dailyKey) {
-  const N = puz.N;
+  const NN = puz.N * puz.N;
   return {
-    v: 1, id: puz.id, kind, dailyKey: dailyKey || '', puz,
-    placed: new Array(N).fill(-1),
-    notes: Array.from({ length: N }, () => new Array(N * N).fill(0)),
-    done: new Array(puz.clues.length).fill(0), hinted: [],
+    v: SAVE_V, id: puz.id, kind, dailyKey: dailyKey || '', puz,
+    sol: new Array(NN).fill(-1),     // solución colocada en cada casilla (índice de persona)
+    pen: new Array(NN).fill(0),      // marcas a lápiz (bits por persona) · se conservan bajo la solución
+    emp: new Array(NN).fill(0),      // casillas marcadas como "aquí no hay nadie"
+    lock: new Array(NN).fill(0),     // reveladas por una pista: no se pueden borrar
+    done: new Array(puz.clues.length).fill(0),
     time: 0, hints: 0, checks: 0, wrong: 0, status: 'playing', undo: [], flash: null,
   };
 }
@@ -157,12 +163,13 @@ function saveGame() {
   LS.set('mdk.current', G.id);
   const idx = LS.get('mdk.saves', []).filter((x) => x !== G.id);
   idx.unshift(G.id);
-  while (idx.length > 14) { const old = idx.pop(); if (!(stats.daily && Object.values(stats.daily).includes(old))) LS.del('mdk.save.' + old); }
+  const keep = new Set(Object.values(stats.daily || {}));
+  while (idx.length > 14) { const old = idx.pop(); if (!keep.has(old)) LS.del('mdk.save.' + old); }
   LS.set('mdk.saves', idx);
 }
 function loadGame(id) {
   const s = LS.get('mdk.save.' + id, null);
-  if (!s || !s.puz || s.v !== 1) return null;
+  if (!s || !s.puz || s.v !== SAVE_V) return null;
   s.undo = []; s.flash = null;
   return s;
 }
@@ -174,21 +181,21 @@ function show(name) {
   $('#screen-home').classList.toggle('on', name === 'home');
   $('#screen-play').classList.toggle('on', name === 'play');
 }
+const placedCount = (g) => g.sol.filter((p) => p >= 0).length;
 
 function renderHome() {
   const d = dailyInfo();
   const ds = loadGame(d.id);
   const solved = !!stats.daily[d.key];
-  const started = ds && ds.status === 'playing' && (ds.placed.some((x) => x >= 0) || ds.time > 5);
+  const started = ds && ds.status === 'playing' && (placedCount(ds) > 0 || ds.time > 5);
   const st = streak();
   const curId = LS.get('mdk.current', '');
   const cur = curId && curId !== d.id ? loadGame(curId) : null;
-  const resume = cur && cur.status === 'playing' ? cur : null;
+  const resumeG = cur && cur.status === 'playing' ? cur : null;
   const sol = solved && ds ? ds : null;
 
   let dailyBtn = `<button class="btn" data-act="daily">${started ? 'Continuar caso' : 'Investigar'}</button>`;
   if (solved) dailyBtn = `<button class="btn ghost" data-act="daily">Ver resultado</button>`;
-  const fsHint = needsFsHint();
 
   $('#screen-home').innerHTML = `
   <div class="home">
@@ -211,17 +218,17 @@ function renderHome() {
       ${dailyBtn}
     </div>
 
-    ${resume ? `<div class="card"><div class="tagrow"><span class="tag">En curso</span><span class="tag">${esc(dLabel(resume.puz.diff))}</span></div>
-      <div class="meta">Tienes un caso a medias · ${fmtTime(resume.time)}</div>
-      <button class="btn ghost" data-act="resume" data-id="${esc(resume.id)}">Continuar</button></div>` : ''}
+    ${resumeG ? `<div class="card"><div class="tagrow"><span class="tag">En curso</span><span class="tag">${esc(dLabel(resumeG.puz.diff))}</span></div>
+      <div class="meta">Tienes un caso a medias · ${fmtTime(resumeG.time)}</div>
+      <button class="btn ghost" data-act="resume" data-id="${esc(resumeG.id)}">Continuar</button></div>` : ''}
 
     <div class="sectiontitle">Caso libre</div>
     <div class="diffgrid">
       ${Object.values(DIFFICULTIES).map((D) => `<button class="diff" data-act="new" data-diff="${D.key}">
-        <b>${D.label}</b><span>Cuadrícula ${D.N}×${D.N} · ${D.N} sospechosos</span><i>${solvedCount(D.key)} resueltos</i></button>`).join('')}
+        <b>${D.label}</b><span>Plano ${D.N}×${D.N} · ${D.N - 1} sospechosos</span><i>${solvedCount(D.key)} resueltos</i></button>`).join('')}
     </div>
 
-    ${fsHint}
+    ${needsFsHint()}
     <div class="linkrow">
       <button class="link" data-act="howto">Cómo se juega</button>
       <button class="link" data-act="settings">Ajustes</button>
@@ -263,10 +270,11 @@ function autoFullscreen() {
 async function openGame(id, makeFn, kind, dailyKey) {
   let g = loadGame(id);
   if (!g) {
+    if (!makeFn) return;
     const puz = await withLoading(makeFn);
     g = newGameFrom(puz, kind, dailyKey);
   }
-  G = g; U.sel = -1; U.hl = null;
+  G = g; U.sel = -1; U.tool = 'sol'; U.pen = false; U.hl = null; G.labels = null;
   renderPlayShell();
   show('play');
   if (!H.stack.includes('play')) hPush('play');
@@ -288,11 +296,9 @@ function resume(id) { autoFullscreen(); return openGame(id, null, 'free', ''); }
 
 function goHome(fromPop) {
   saveGame();
-  if (fromPop) {
-    $('#sheet-bg').classList.remove('on'); $('#sheet').classList.remove('on');
-  } else {
+  $('#sheet-bg').classList.remove('on'); $('#sheet').classList.remove('on');
+  if (!fromPop) {
     const n = H.stack.length;
-    $('#sheet-bg').classList.remove('on'); $('#sheet').classList.remove('on');
     if (n) { H.stack = []; H.ignore++; try { history.go(-n); } catch (e) { H.ignore--; } }
   }
   renderHome();
@@ -302,73 +308,155 @@ function goHome(fromPop) {
 // --------------------------------------------------------- Partida: pintado
 function renderPlayShell() {
   const puz = G.puz, v = puz.victim;
+  const vc = CONTENT.charMap[puz.persons[v]];
   const num = G.kind === 'daily' ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
   $('#screen-play').innerHTML = `
   <div class="play">
     <div class="topbar">
       <button class="icon-btn" data-act="home" aria-label="Menú">‹</button>
-      <div class="ttl">${num}<small>${esc(dLabel(puz.diff))} · Mansión ${esc(puz.mansion)}</small></div>
+      <div class="ttl">${num}<small>${esc(dLabel(puz.diff))}</small></div>
       <div class="timer" id="timer"></div>
+      <button class="icon-btn" data-act="hint" aria-label="Pista">💡</button>
+      <button class="icon-btn" data-act="check" aria-label="Revisar">✔︎</button>
       <button class="icon-btn" data-act="howto" aria-label="Ayuda">?</button>
     </div>
     <div class="casestrip">
-      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span><b>${esc(CONTENT.charMap[puz.persons[v]].name)}</b> ha aparecido sin vida. ¿Quién estuvo a solas con la víctima?</span></div>
+      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>Mansión ${esc(puz.mansion)}: <b>${esc(vc.name)}</b> ha aparecido sin vida. ¿Quién estuvo a solas con ${vc.g === 'f' ? 'ella' : 'él'}?</span></div>
       <div class="compass" title="Norte arriba"><div><b>N</b>↑</div></div>
     </div>
     <div class="boardwrap"><div class="board" id="board"></div></div>
+    <div class="modebar" id="modebar"></div>
     <div class="tray" id="tray"></div>
     <div class="cluehead"><b>Pistas</b><span id="clue-count"></span></div>
     <ul class="clues" id="clues"></ul>
-    <div class="bottombar">
-      <button class="tbtn" data-act="undo" id="b-undo"><i>↶</i>Deshacer</button>
-      <button class="tbtn" data-act="hint"><i>💡</i>Pista</button>
-      <button class="tbtn" data-act="check"><i>✔︎</i>Revisar</button>
-      <button class="tbtn primary" data-act="accuse" id="b-acc"><i>🔎</i>Acusar</button>
-    </div>
+    <div class="bottombar" id="tools"></div>
   </div>`;
   drawAll();
   updateTimer();
 }
-function drawAll() { drawBoard(); drawTray(); drawClues(); updateBottom(); }
+function drawAll() { drawBoard(); drawTray(); drawTools(); drawClues(); }
 
 function labelCells() {
   if (G.labels) return G.labels;
   const puz = G.puz, N = puz.N, out = new Array(puz.K).fill(-1);
+  // primera casilla (de arriba a la izquierda) sin mueble de cada habitación
   for (let i = 0; i < N * N; i++) {
     const r = puz.roomOf[i];
-    if (out[r] === -1 && !puz.itemAt[i]) out[r] = i;
+    if (out[r] === -1 && puz.cellObj[i] < 0) out[r] = i;
   }
   for (let i = 0; i < N * N; i++) if (out[puz.roomOf[i]] === -1) out[puz.roomOf[i]] = i;
   return (G.labels = out);
 }
 
+// Conflictos: dos soluciones en la misma fila/columna, o el mismo personaje dos veces.
 function conflictSet() {
-  const N = G.puz.N, bad = new Set();
-  for (let p = 0; p < N; p++) {
-    if (G.placed[p] < 0) continue;
-    for (let q = p + 1; q < N; q++) {
-      if (G.placed[q] < 0) continue;
-      const a = G.placed[p], b = G.placed[q];
-      if (((a / N) | 0) === ((b / N) | 0) || a % N === b % N) { bad.add(a); bad.add(b); }
+  const N = G.puz.N, NN = N * N, bad = new Set();
+  const cells = [];
+  for (let x = 0; x < NN; x++) if (G.sol[x] >= 0) cells.push(x);
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      const a = cells[i], b = cells[j];
+      if (((a / N) | 0) === ((b / N) | 0) || a % N === b % N || G.sol[a] === G.sol[b]) { bad.add(a); bad.add(b); }
     }
   }
   return bad;
+}
+function occupiedLines() {
+  const N = G.puz.N, rows = new Set(), cols = new Set();
+  for (let x = 0; x < N * N; x++) if (G.sol[x] >= 0) { rows.add((x / N) | 0); cols.add(x % N); }
+  return { rows, cols };
+}
+
+const pct = (v, N) => (v / N * 100).toFixed(4) + '%';
+const CARPETS = [['#8e2f36', '#d6a54a'], ['#2f4d7a', '#d8c08a'], ['#3e6b45', '#e0c27a'], ['#6b3f7a', '#e2c690'], ['#9a5a2a', '#f0d9a0']];
+
+function objectsHTML() {
+  const puz = G.puz, N = puz.N;
+  let html = '';
+  puz.objs.forEach((o, idx) => {
+    const it = CONTENT.itemMap[o.t];
+    const rs = o.cells.map((x) => (x / N) | 0), cs = o.cells.map((x) => x % N);
+    const r0 = Math.min(...rs), r1 = Math.max(...rs), c0 = Math.min(...cs), c1 = Math.max(...cs);
+    const h = r1 - r0 + 1, w = c1 - c0 + 1;
+    const box = `left:${pct(c0, N)};top:${pct(r0, N)};width:${pct(w, N)};height:${pct(h, N)};`;
+    const sprite = has('items', o.t);
+    const hl = U.hl && U.hl.items.includes(o.t) ? ' hl' : '';
+    if (it.shape === 'area') {
+      const kind = it.walk ? 'carpet' : 'table';
+      let style = box + `--w:${w};--h:${h};`;
+      if (sprite) style += `background-image:url(${spUrl('items', o.t)});`;
+      else if (kind === 'carpet') { const [a, b] = CARPETS[idx % CARPETS.length]; style += `--ca:${a};--cb:${b};`; }
+      html += `<div class="obj ${kind}${sprite ? ' sprite' : ''}${hl}" style="${style}"></div>`;
+      return;
+    }
+    const vert = h > w;
+    let inner;
+    if (sprite) {
+      inner = vert
+        ? `<img class="sp rot" src="${spUrl('items', o.t)}" alt="" style="width:${(h / w) * 100}%;height:${(w / h) * 100}%">`
+        : `<img class="sp" src="${spUrl('items', o.t)}" alt="">`;
+    } else {
+      inner = it.emoji ? `<span class="em">${it.emoji}</span>` : `<span class="em sw ${o.t}-sw"></span>`;
+    }
+    const shape = it.shape === 'pair' ? ' pair' + (vert ? ' vert' : '') : ' one';
+    html += `<div class="obj${shape}${it.walk ? ' walk' : ' block'}${sprite ? ' sprite' : ''}${hl} t-${o.t}" style="${box}">${inner}</div>`;
+  });
+  return html;
+}
+
+function openingsHTML() {
+  const puz = G.puz, N = puz.N, NN = N * N;
+  const hlW = U.hl && U.hl.win, hlD = U.hl && U.hl.door;
+  let html = '';
+  const seen = new Set();
+  const seg = (x, bit, cls) => {
+    const r = (x / N) | 0, c = x % N;
+    let key, style;
+    const T = 7; // grosor en px
+    if (bit === 1 || bit === 4) {
+      const yy = bit === 1 ? r : r + 1;
+      key = 'h' + yy + ',' + c;
+      style = `left:calc(${pct(c + 0.2, N)});width:${pct(0.6, N)};top:calc(${pct(yy, N)} - ${yy === 0 ? 0 : yy === N ? T : T / 2}px);height:${T}px;`;
+    } else {
+      const xx = bit === 8 ? c : c + 1;
+      key = 'v' + r + ',' + xx;
+      style = `top:calc(${pct(r + 0.2, N)});height:${pct(0.6, N)};left:calc(${pct(xx, N)} - ${xx === 0 ? 0 : xx === N ? T : T / 2}px);width:${T}px;`;
+    }
+    if (seen.has(cls + key)) return;
+    seen.add(cls + key);
+    const hl = (cls === 'win' && hlW) || (cls === 'door' && hlD) ? ' hl' : '';
+    html += `<div class="opening ${cls}${bit === 1 || bit === 4 ? ' h' : ' v'}${hl}" style="${style}"></div>`;
+  };
+  for (let x = 0; x < NN; x++) {
+    for (const bit of [1, 2, 4, 8]) {
+      if (puz.winAt[x] & bit) seg(x, bit, 'win');
+      if (puz.doorAt[x] & bit) seg(x, bit, 'door');
+    }
+  }
+  return html;
+}
+
+function pencilHTML(mask) {
+  if (!mask) return '';
+  let s = '';
+  G.puz.persons.forEach((cid, p) => {
+    if (!(mask & (1 << p))) return;
+    const c = CONTENT.charMap[cid];
+    s += `<i style="--c:${c.color};grid-row:${((p / 3) | 0) + 1};grid-column:${(p % 3) + 1}">${esc(c.mark)}</i>`;
+  });
+  return `<div class="pm">${s}</div>`;
 }
 
 function drawBoard() {
   const puz = G.puz, N = puz.N, NN = N * N;
   const board = $('#board');
   board.style.setProperty('--n', N);
+  board.dataset.tool = U.tool === 'sol' && U.pen ? 'pen' : U.tool;
   const labels = labelCells();
-  const sel = U.sel;
   const bad = settings.conflicts ? conflictSet() : new Set();
+  const lines = settings.rowcol ? occupiedLines() : { rows: new Set(), cols: new Set() };
   const hl = U.hl;
   const flash = G.flash;
-  // filas/columnas ocupadas por otros personajes
-  const occ = [];
-  for (let p = 0; p < N; p++) if (G.placed[p] >= 0 && p !== sel) occ.push(G.placed[p]);
-  const personAt = {};
-  G.placed.forEach((c, p) => { if (c >= 0) personAt[c] = p; });
 
   let html = '';
   for (let i = 0; i < NN; i++) {
@@ -379,31 +467,22 @@ function drawBoard() {
     if (r === N - 1 || puz.roomOf[i + N] !== room) cls.push('bb');
     if (c === 0 || puz.roomOf[i - 1] !== room) cls.push('bl');
     if (c === N - 1 || puz.roomOf[i + 1] !== room) cls.push('br');
-    const p = personAt[i];
-    if (sel >= 0 && G.placed[sel] === i) cls.push('sel');
+    const p = G.sol[i];
     if (bad.has(i)) cls.push('conflict');
     if (flash && flash.cells.includes(i)) cls.push('badcell');
-    if (hl) {
-      const itemHit = puz.itemAt[i] && hl.items.includes(puz.itemAt[i]) && !hl.rooms.length;
-      if (hl.rooms.includes(room) || itemHit) cls.push('hl');
-    }
+    if (hl && hl.rooms.includes(room)) cls.push('hl');
+    if (hl && hl.cells && hl.cells.includes(i)) cls.push('hl');
+    if (U.sel >= 0 && p === U.sel) cls.push('sel');
     let inner = '';
-    if (puz.decorAt[i]) {
-      const d = puz.decorAt[i];
-      inner += has('decor', d) ? `<img class="decor sp" src="${spUrl('decor', d)}" alt="">` : `<span class="decor">${CONTENT.decorMap[d].emoji}</span>`;
-    }
-    const it = puz.itemAt[i];
-    if (it) inner += `<span class="it${CONTENT.weaponMap[it] ? ' weapon' : ''}" style="display:grid;place-items:center">${thingVis(it, has(CONTENT.weaponMap[it] ? 'weapons' : 'items', it) ? 'itimg' : '')}</span>`;
-    if (p !== undefined) {
+    if (!puz.walk[i]) inner += '<div class="blk"></div>';
+    else if (G.emp[i] && p < 0) inner += '<div class="emp"></div>';
+    else if (p < 0 && (lines.rows.has(r) || lines.cols.has(c))) inner += '<div class="dim"></div>';
+    if (p >= 0) {
       const isV = p === puz.victim;
-      inner += `<div class="tok${isV ? ' vic' : ''}">${avatar(puz.persons[p], { dead: isV })}${isV ? '<span class="skull">💀</span>' : ''}${G.hinted.includes(p) ? '<span class="pin">💡</span>' : ''}</div>`;
+      inner += `<div class="tok${isV ? ' vic' : ''}">${avatar(puz.persons[p], { dead: isV })}${G.lock[i] ? '<span class="pin">💡</span>' : ''}</div>`;
+    } else if (G.pen[i]) {
+      inner += pencilHTML(G.pen[i]);
     }
-    if (sel >= 0 && G.notes[sel][i] && p === undefined) {
-      const fx = flash && flash.notes.some(([pp, ii]) => pp === sel && ii === i);
-      inner += `<div class="x">✕</div>`;
-      if (fx) cls.push('flashx');
-    }
-    if (settings.rowcol && p === undefined && occ.some((o) => ((o / N) | 0) === r || o % N === c)) inner += '<div class="dim"></div>';
     inner += '<div class="ring"></div>';
     const fl = has('floors', type.id) ? `background-image:url(${spUrl('floors', type.id)});` : '';
     html += `<div class="${cls.join(' ')}" data-act="cell" data-i="${i}" style="--fl:${type.color};${fl}">${inner}</div>`;
@@ -411,26 +490,53 @@ function drawBoard() {
   let lab = '';
   labels.forEach((cellIdx, room) => {
     const t = CONTENT.roomTypeMap[puz.roomTypes[room]];
-    lab += `<span class="rl" style="left:calc(var(--cell) * ${cellIdx % N} + 4px);top:calc(var(--cell) * ${(cellIdx / N) | 0} + 4px)">${esc(t.label)}</span>`;
+    const lc = cellIdx % N, lr = (cellIdx / N) | 0;
+    const hpos = lc >= N - 1 ? `right:calc(${pct(N - 1 - lc, N)} + 4px)` : `left:calc(${pct(lc, N)} + 4px)`;
+    lab += `<span class="rl" style="${hpos};top:calc(${pct(lr, N)} + 4px)">${esc(t.label)}</span>`;
   });
-  board.innerHTML = html + lab;
-  // el "it" usa estilos de .it en CSS; asegurar clase correcta en emoji/imagen
-  board.querySelectorAll('.it > .em').forEach((e) => { e.style.fontSize = 'calc(var(--cell) * .46)'; });
-  board.querySelectorAll('.it > img').forEach((e) => { e.style.width = '100%'; e.style.height = '100%'; e.style.objectFit = 'contain'; });
+  board.innerHTML = html + `<div class="layer">${objectsHTML()}</div><div class="layer top">${openingsHTML()}${lab}</div>`;
 }
+
+function personCount(p) { return G.sol.filter((q) => q === p).length; }
 
 function drawTray() {
   const puz = G.puz;
   const hlP = U.hl ? U.hl.persons : [];
+  const active = U.tool === 'sol';
   $('#tray').innerHTML = puz.persons.map((cid, p) => {
     const c = CONTENT.charMap[cid];
     const cls = ['chip'];
-    if (U.sel === p) cls.push('sel');
-    if (G.placed[p] >= 0) cls.push('placed');
+    if (U.sel === p && active) cls.push('sel');
+    const n = personCount(p);
+    if (n === 1) cls.push('placed');
+    if (n > 1) cls.push('dup');
     if (p === puz.victim) cls.push('vic');
     if (hlP.includes(p)) cls.push('pulse');
     return `<button class="${cls.join(' ')}" data-act="pick" data-p="${p}">${avatar(cid)}<span>${esc(c.name)}</span></button>`;
   }).join('');
+  drawModebar();
+}
+
+function drawModebar() {
+  const mb = $('#modebar');
+  if (!mb) return;
+  let txt;
+  if (U.tool === 'erase') txt = '<b class="m-erase">Borrar</b> toca casillas para vaciarlas por completo';
+  else if (U.tool === 'empty') txt = '<b class="m-empty">Vacía</b> toca casillas donde no puede haber nadie';
+  else if (U.sel < 0) txt = 'Elige un personaje y toca una casilla';
+  else if (U.pen) txt = `<b class="m-pen">Lápiz</b> posibles casillas de <b>${esc(pname(U.sel))}</b>`;
+  else txt = `<b class="m-sol">Colocar</b> <b>${esc(pname(U.sel))}</b> · toca su casilla`;
+  mb.innerHTML = txt;
+}
+
+function drawTools() {
+  const full = G.sol.filter((p) => p >= 0).length === G.puz.N && new Set(G.sol.filter((p) => p >= 0)).size === G.puz.N;
+  $('#tools').innerHTML = `
+    <button class="tbtn${U.tool === 'sol' && U.pen ? ' on' : ''}" data-act="tool" data-t="pen"><i>✏️</i>Lápiz</button>
+    <button class="tbtn${U.tool === 'empty' ? ' on' : ''}" data-act="tool" data-t="empty"><i>⬛</i>Vacía</button>
+    <button class="tbtn${U.tool === 'erase' ? ' on' : ''}" data-act="tool" data-t="erase"><i>🧽</i>Borrar</button>
+    <button class="tbtn" data-act="undo" ${G.undo.length ? '' : 'disabled'}><i>↶</i>Deshacer</button>
+    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}" data-act="accuse"><i>🔎</i>Acusar</button>`;
 }
 
 function drawClues() {
@@ -447,73 +553,98 @@ function drawClues() {
   const n = G.done.filter(Boolean).length;
   $('#clue-count').textContent = `${n}/${puz.clues.length} usadas`;
 }
-
-function updateBottom() {
-  const full = G.placed.every((x) => x >= 0);
-  const acc = $('#b-acc');
-  if (acc) acc.classList.toggle('glow', full && G.status === 'playing');
-  const un = $('#b-undo');
-  if (un) un.disabled = !G.undo.length;
-}
 function updateTimer() {
   const t = $('#timer');
   if (t) t.textContent = settings.timer ? fmtTime(G.time) : '';
 }
 
 // --------------------------------------------------------------- Acciones
+function snapshot() { return JSON.stringify({ sol: G.sol, pen: G.pen, emp: G.emp, lock: G.lock }); }
 function pushUndo() {
-  G.undo.push(JSON.stringify({ placed: G.placed, notes: G.notes }));
-  if (G.undo.length > 120) G.undo.shift();
+  G.undo.push(snapshot());
+  if (G.undo.length > 150) G.undo.shift();
 }
 function undo() {
   const s = G.undo.pop();
   if (!s) return;
-  const o = JSON.parse(s);
-  G.placed = o.placed; G.notes = o.notes;
-  drawAll(); saveGame();
-}
-function pick(p) {
-  U.sel = U.sel === p ? -1 : p;
-  buzz(6);
-  drawBoard(); drawTray();
-}
-function tapCell(i) {
-  if (G.status !== 'playing') return;
-  const N = G.puz.N;
-  const sel = U.sel;
-  if (sel < 0) {
-    const q = G.placed.indexOf(i);
-    if (q >= 0) { U.sel = q; drawBoard(); drawTray(); } else toast('Elige un personaje de la bandeja y toca una casilla');
-    return;
-  }
-  const locked = (q) => G.hinted.includes(q);
-  if (G.placed[sel] === i) {
-    if (locked(sel)) return toast('Esta casilla la reveló una pista');
-    pushUndo(); G.placed[sel] = -1;
-  } else if (G.notes[sel][i]) {
-    const q = G.placed.indexOf(i);
-    if (q >= 0 && q !== sel && locked(q)) return toast('Esa casilla la reveló una pista');
-    if (locked(sel)) return toast('Este personaje ya está fijado por una pista');
-    pushUndo();
-    G.notes[sel][i] = 0;
-    if (q >= 0 && q !== sel) G.placed[q] = -1;
-    G.placed[sel] = i;
-    buzz(14);
-  } else {
-    pushUndo();
-    G.notes[sel][i] = 1;
-    buzz(6);
-  }
+  Object.assign(G, JSON.parse(s));
   G.flash = null;
   drawAll(); saveGame();
 }
+function pick(p) {
+  if (U.tool === 'erase' || U.tool === 'empty') U.tool = 'sol';
+  else if (U.sel === p) { U.sel = -1; drawTray(); drawBoard(); return; }
+  U.sel = p;
+  buzz(6);
+  drawBoard(); drawTray(); drawTools();
+}
+function setTool(t) {
+  if (t === 'pen') {
+    if (U.tool !== 'sol') { U.tool = 'sol'; U.pen = true; } else U.pen = !U.pen;
+  } else {
+    U.tool = U.tool === t ? 'sol' : t;
+  }
+  buzz(6);
+  drawBoard(); drawTray(); drawTools();
+}
+
+function tapCell(i) {
+  if (G.status !== 'playing') return;
+  const puz = G.puz;
+  const cur = G.sol[i];
+  const changed = () => { G.flash = null; drawBoard(); drawTray(); drawTools(); saveGame(); };
+
+  if (U.tool === 'erase') {
+    if (G.lock[i]) return toast('Esta casilla la reveló una pista');
+    if (cur < 0 && !G.pen[i] && !G.emp[i]) return;
+    pushUndo();
+    G.sol[i] = -1; G.pen[i] = 0; G.emp[i] = 0;
+    buzz(10);
+    return changed();
+  }
+  if (!puz.walk[i]) return toast('Ahí hay un mueble: nadie puede ocupar esa casilla');
+  if (U.tool === 'empty') {
+    if (cur >= 0) return toast('Primero quita al personaje de esa casilla');
+    pushUndo();
+    G.emp[i] = G.emp[i] ? 0 : 1;
+    buzz(8);
+    return changed();
+  }
+  // modos con personaje: colocar o lápiz
+  if (U.sel < 0) {
+    if (cur >= 0) { U.sel = cur; drawBoard(); drawTray(); return; }
+    return toast('Elige primero un personaje de la lista');
+  }
+  const p = U.sel;
+  if (U.pen) {
+    if (cur >= 0) return toast('Esa casilla ya tiene una solución');
+    pushUndo();
+    G.pen[i] ^= (1 << p);
+    buzz(6);
+    return changed();
+  }
+  if (G.lock[i]) return toast('Esta casilla la reveló una pista');
+  pushUndo();
+  if (cur === p) {
+    G.sol[i] = -1;                       // quitar: reaparecen las marcas a lápiz
+  } else {
+    G.sol[i] = p;                        // colocar (el lápiz se conserva debajo)
+    G.emp[i] = 0;
+  }
+  buzz(14);
+  changed();
+}
+
 function toggleClueDone(i) { G.done[i] = G.done[i] ? 0 : 1; drawClues(); saveGame(); }
 function flashClue(i) {
-  const c = G.puz.clues[i];
-  const refs = clueRefs(c, G.puz, CONTENT);
+  const puz = G.puz, N = puz.N, NN = N * N;
+  const c = puz.clues[i];
+  const refs = clueRefs(c);
   U.activeClue = i;
-  U.hl = { rooms: refs.rooms, items: refs.items, persons: refs.persons };
-  if (refs.victim) U.hl.persons = U.hl.persons.concat([G.puz.victim]);
+  const cells = [];
+  if (refs.win || refs.door) for (let x = 0; x < NN; x++) if ((refs.win && puz.winAt[x]) || (refs.door && puz.doorAt[x])) cells.push(x);
+  if (c.t === 'LINE') for (let k = 0; k < N; k++) cells.push(c.side === 'N' ? k : c.side === 'S' ? (N - 1) * N + k : c.side === 'W' ? k * N : k * N + N - 1);
+  U.hl = { rooms: refs.rooms, items: refs.items, persons: refs.victim ? refs.persons.concat([puz.victim]) : refs.persons, win: refs.win, door: refs.door, cells };
   drawBoard(); drawTray(); drawClues();
   clearTimeout(U.hlTimer);
   U.hlTimer = setTimeout(() => { U.hl = null; U.activeClue = -1; if (G) { drawBoard(); drawTray(); drawClues(); } }, 2400);
@@ -521,47 +652,57 @@ function flashClue(i) {
 
 function doHint() {
   if (G.status !== 'playing') return;
-  const N = G.puz.N, sol = G.puz.solution;
-  const cand = [];
-  for (let p = 0; p < N; p++) if (!G.hinted.includes(p)) cand.push(p);
-  if (!cand.length) return toast('Ya no quedan pistas por revelar');
-  const wrong = cand.filter((p) => G.placed[p] >= 0 && G.placed[p] !== sol[p]);
-  const free = cand.filter((p) => G.placed[p] < 0);
-  const pool = wrong.length ? wrong : (free.length ? free : cand);
+  const puz = G.puz, N = puz.N, sol = puz.solution;
+  const wrongP = [], freeP = [];
+  for (let p = 0; p < N; p++) {
+    if (G.lock[sol[p]]) continue;
+    const right = G.sol[sol[p]] === p;
+    const elsewhere = G.sol.some((q, x) => q === p && x !== sol[p]);
+    if (elsewhere) wrongP.push(p);
+    else if (!right) freeP.push(p);
+  }
+  const pool = wrongP.length ? wrongP : freeP;
+  if (!pool.length) return toast('Ya está todo bien colocado. ¡Acusa al culpable!');
   const p = pool[Math.floor(Math.random() * pool.length)];
   pushUndo();
-  const q = G.placed.indexOf(sol[p]);
-  if (q >= 0 && q !== p) G.placed[q] = -1;
-  G.placed[p] = sol[p];
-  G.notes[p][sol[p]] = 0;
-  G.hinted.push(p);
+  for (let x = 0; x < G.sol.length; x++) if (G.sol[x] === p && !G.lock[x]) G.sol[x] = -1;
+  G.sol[sol[p]] = p; G.emp[sol[p]] = 0; G.lock[sol[p]] = 1;
   G.hints++;
-  U.sel = p;
+  U.sel = p; U.tool = 'sol'; U.pen = false;
   drawAll(); saveGame();
-  toast(`${CONTENT.charMap[G.puz.persons[p]].name} estaba aquí (pista revelada)`);
+  toast(`${pname(p)} estaba aquí (pista revelada)`);
 }
 function doCheck() {
   if (G.status !== 'playing') return;
-  const N = G.puz.N, sol = G.puz.solution;
+  const puz = G.puz, sol = puz.solution, NN = puz.N * puz.N;
   G.checks++;
-  const wrongP = [];
-  for (let p = 0; p < N; p++) if (G.placed[p] >= 0 && G.placed[p] !== sol[p]) wrongP.push(p);
-  const badNotes = [];
-  for (let p = 0; p < N; p++) if (G.notes[p][sol[p]]) badNotes.push([p, sol[p]]);
-  const placedN = G.placed.filter((x) => x >= 0).length;
-  if (!wrongP.length && !badNotes.length) {
-    toast(placedN ? 'Todo lo que has marcado es correcto ✔︎' : 'Aún no hay nada que revisar');
+  const bad = [];
+  let wrongSol = 0, wrongEmp = 0, missingPen = 0;
+  const trueAt = new Array(NN).fill(-1);
+  sol.forEach((x, p) => { trueAt[x] = p; });
+  for (let x = 0; x < NN; x++) {
+    if (G.sol[x] >= 0 && trueAt[x] !== G.sol[x]) { bad.push(x); wrongSol++; }
+    if (G.emp[x] && trueAt[x] >= 0) { bad.push(x); wrongEmp++; }
+  }
+  // lápiz: si un personaje tiene marcas pero ninguna en su casilla real
+  for (let p = 0; p < puz.N; p++) {
+    let any = false;
+    for (let x = 0; x < NN; x++) if (G.pen[x] & (1 << p)) { any = true; break; }
+    if (any && !(G.pen[sol[p]] & (1 << p)) && G.sol[sol[p]] !== p) missingPen++;
+  }
+  if (!bad.length && !missingPen) {
+    toast(placedCount(G) || G.emp.some(Boolean) ? 'Todo lo que has marcado es correcto ✔︎' : 'Aún no hay nada que revisar');
   } else {
-    G.flash = { cells: wrongP.map((p) => G.placed[p]), notes: badNotes };
-    if (!wrongP.length && badNotes.length) U.sel = badNotes[0][0];
+    G.flash = { cells: bad };
     buzz(30);
     const parts = [];
-    if (wrongP.length) parts.push(`${wrongP.length} personaje${wrongP.length > 1 ? 's' : ''} mal colocado${wrongP.length > 1 ? 's' : ''}`);
-    if (badNotes.length) parts.push(`${badNotes.length} descarte${badNotes.length > 1 ? 's' : ''} erróneo${badNotes.length > 1 ? 's' : ''}`);
-    toast('⚠ ' + parts.join(' y '), 2600);
+    if (wrongSol) parts.push(`${wrongSol} personaje${wrongSol > 1 ? 's' : ''} mal colocado${wrongSol > 1 ? 's' : ''}`);
+    if (wrongEmp) parts.push(`${wrongEmp} casilla${wrongEmp > 1 ? 's' : ''} marcada${wrongEmp > 1 ? 's' : ''} como vacía sin estarlo`);
+    if (missingPen) parts.push(`al lápiz de ${missingPen} personaje${missingPen > 1 ? 's' : ''} le falta su casilla real`);
+    toast('⚠ ' + parts.join(' · '), 3200);
     setTimeout(() => { if (G) { G.flash = null; drawBoard(); } }, 3200);
   }
-  drawAll(); saveGame();
+  drawBoard(); saveGame();
 }
 
 // ------------------------------------------------- Historial (botón Atrás del móvil)
@@ -580,6 +721,7 @@ window.addEventListener('popstate', () => {
 });
 
 // -------------------------------------------------------------- Hojas
+function sheetOpen() { return $('#sheet').classList.contains('on'); }
 function openSheet(title, html) {
   if (!sheetOpen()) hPush('sheet');
   $('#sheet-title').textContent = title;
@@ -594,33 +736,30 @@ function closeSheet(fromPop) {
   $('#sheet').classList.remove('on');
   if (was && fromPop !== true && H.stack[H.stack.length - 1] === 'sheet') hPop();
 }
-function sheetOpen() { return $('#sheet').classList.contains('on'); }
 
 function accuseHTML() {
   const puz = G.puz;
+  const vc = CONTENT.charMap[puz.persons[puz.victim]];
   const suspects = puz.persons.map((cid, p) => ({ cid, p })).filter((o) => o.p !== puz.victim);
-  const weapons = puz.weaponOfRoom.filter(Boolean);
   return `
-    <p>¿Quién estuvo a solas con <b>${esc(CONTENT.charMap[puz.persons[puz.victim]].name)}</b> y con qué arma?</p>
-    <h4>El asesino</h4>
-    <div class="picker">${suspects.map((o) => `<button class="pick${U.acc.m === o.p ? ' sel' : ''}" data-act="pick-suspect" data-p="${o.p}">${avatar(o.cid)}<span>${esc(CONTENT.charMap[o.cid].name)}</span></button>`).join('')}</div>
-    <h4>El arma</h4>
-    <div class="picker">${weapons.map((w) => `<button class="pick${U.acc.w === w ? ' sel' : ''}" data-act="pick-weapon" data-w="${w}">${thingVis(w, 'wp')}<span>${esc(CONTENT.weaponMap[w].name)}</span></button>`).join('')}</div>
-    <button class="btn danger" data-act="do-accuse" ${U.acc.m < 0 || !U.acc.w ? 'style="opacity:.5"' : ''}>Acusar</button>`;
+    <p>El asesino es la única persona que estuvo a solas con <b>${esc(vc.name)}</b> en su habitación. ¿Quién fue?</p>
+    <div class="picker">${suspects.map((o) => `<button class="pick${U.acc === o.p ? ' sel' : ''}" data-act="pick-suspect" data-p="${o.p}">${avatar(o.cid)}<span>${esc(CONTENT.charMap[o.cid].name)}</span></button>`).join('')}</div>
+    <button class="btn danger" data-act="do-accuse" ${U.acc < 0 ? 'style="opacity:.5"' : ''}>Acusar</button>`;
 }
 function openAccuse() {
   if (G.status !== 'playing') return openVictory(true);
-  U.acc = { m: -1, w: '' };
-  openSheet('Hacer una acusación', accuseHTML());
+  U.acc = -1;
+  openSheet('¿Quién fue?', accuseHTML());
 }
 function doAccuse() {
-  if (U.acc.m < 0 || !U.acc.w) return toast('Elige un sospechoso y un arma');
+  if (U.acc < 0) return toast('Elige a un sospechoso');
   const puz = G.puz;
-  if (U.acc.m === puz.murderer && U.acc.w === puz.weapon) {
+  if (U.acc === puz.murderer) {
     G.status = 'solved';
-    G.placed = puz.solution.slice();
-    const rec = { diff: puz.diff, time: G.time, hints: G.hints, checks: G.checks, wrong: G.wrong, at: Date.now(), kind: G.kind };
-    stats.solved[G.id] = rec;
+    G.sol = new Array(puz.N * puz.N).fill(-1);
+    puz.solution.forEach((x, p) => { G.sol[x] = p; });
+    G.emp = G.emp.map((e, x) => (G.sol[x] >= 0 ? 0 : e));
+    stats.solved[G.id] = { diff: puz.diff, time: G.time, hints: G.hints, checks: G.checks, wrong: G.wrong, at: Date.now(), kind: G.kind };
     if (G.kind === 'daily') stats.daily[G.dailyKey] = G.id;
     saveStats(); saveGame();
     U.sel = -1;
@@ -631,23 +770,21 @@ function doAccuse() {
     G.wrong++;
     saveGame();
     buzz(60);
-    const hintTxt = U.acc.m !== puz.murderer && U.acc.w !== puz.weapon ? 'Ni el sospechoso ni el arma son correctos.' : (U.acc.m !== puz.murderer ? 'El arma es correcta, pero ese no es el asesino.' : 'El asesino es correcto, pero el arma no.');
-    toast('❌ ' + hintTxt, 2800);
-    const sh = $('#sheet'); sh.animate([{ transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' }, { transform: 'none' }], { duration: 260 });
+    toast(`❌ ${pname(U.acc)} no estuvo a solas con la víctima`, 2600);
+    $('#sheet').animate([{ transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' }, { transform: 'none' }], { duration: 260 });
   }
 }
 function storyText() {
   const puz = G.puz;
-  const n = (p) => CONTENT.charMap[puz.persons[p]].name;
-  return `${n(puz.murderer)} estuvo a solas con ${n(puz.victim)} en ${roomText(puz.crimeRoom, puz, CONTENT)} y mató con ${weaponText(puz.weapon, CONTENT)}.`;
+  return `${pname(puz.murderer)} estuvo a solas con ${pname(puz.victim)} en ${roomText(puz.crimeRoom, puz, CONTENT)}.`;
 }
 function openVictory(again) {
   const puz = G.puz;
   const num = G.kind === 'daily' ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
   openSheet(again ? 'Caso cerrado' : '¡Caso resuelto!', `
   <div class="reveal">
-    <div class="cast">${avatar(puz.persons[puz.murderer])}<span class="em" style="font-size:44px">${has('weapons', puz.weapon) ? thingVis(puz.weapon, 'wp') : CONTENT.weaponMap[puz.weapon].emoji}</span></div>
-    <div class="big">${esc(CONTENT.charMap[puz.persons[puz.murderer]].name)} era el asesino</div>
+    <div class="cast">${avatar(puz.persons[puz.murderer])}</div>
+    <div class="big">${esc(pname(puz.murderer))} es ${CONTENT.charMap[puz.persons[puz.murderer]].g === 'f' ? 'la asesina' : 'el asesino'}</div>
     <p>${esc(storyText())}</p>
     <div class="stats"><span class="tag brass">⏱ ${fmtTime(G.time)}</span><span class="tag">💡 ${G.hints} pista${G.hints === 1 ? '' : 's'}</span><span class="tag">✔︎ ${G.checks} revisión${G.checks === 1 ? '' : 'es'}</span>${G.wrong ? `<span class="tag">❌ ${G.wrong} fallo${G.wrong === 1 ? '' : 's'}</span>` : ''}</div>
     <div class="stack">
@@ -670,26 +807,29 @@ async function shareResult() {
 
 function openHowto() {
   openSheet('Cómo se juega', `
-    <p>Han asesinado a alguien en la mansión. Todos los personajes, <b>incluida la víctima</b>, están en el plano. Tu trabajo: colocarlos a todos y descubrir quién fue el asesino y con qué arma.</p>
+    <p>Han asesinado a alguien en la mansión. Todos los personajes, <b>incluida la víctima</b>, están en el plano. Colócalos a todos y descubre quién estuvo a solas con la víctima.</p>
     <h4>Las reglas</h4>
     <ul>
-      <li>Cada personaje ocupa <b>una casilla</b>. Hay exactamente <b>uno por cada fila y uno por cada columna</b>.</li>
+      <li>Hay exactamente <b>una persona por fila y una por columna</b>.</li>
+      <li>Nadie puede estar en una casilla con un <b>obstáculo</b> (mesas, plantas, pianos, armarios…): aparecen oscurecidas. Sí se puede estar <b>sobre</b> sillas, sillones, sofás, camas, bancos o alfombras.</li>
       <li>Las pistas son siempre <b>verdaderas</b>.</li>
-      <li>La víctima estaba en una habitación con un <b>arma</b>, y solo había <b>otra persona</b> con ella: <b>el asesino</b>. Esa es el arma del crimen.</li>
+      <li>La víctima estaba <b>a solas con el asesino</b>: en su habitación solo había otra persona.</li>
     </ul>
     <h4>Cómo se marca</h4>
     <ul>
-      <li>Toca un personaje de la bandeja y luego una casilla: <b>1 toque</b> = ✕ descartar · <b>2 toques</b> = colocar · <b>3</b> = quitar.</li>
-      <li>El <b>rayado</b> marca filas y columnas que ya tienen dueño.</li>
-      <li>Toca una pista para ver a qué se refiere en el plano; con el círculo ✓ la tachas.</li>
-      <li>Cuando tengas a todos, pulsa <b>Acusar</b> y elige asesino y arma.</li>
+      <li><b>Colocar:</b> toca un personaje y luego su casilla. Tocar otra vez la misma casilla lo quita.</li>
+      <li><b>✏️ Lápiz:</b> con un personaje elegido, anota dónde <i>podría</i> estar. Tocar de nuevo borra la marca. Las marcas se conservan debajo de una solución y reaparecen si la quitas.</li>
+      <li><b>⬛ Vacía:</b> oscurece casillas donde estás seguro de que no hay nadie.</li>
+      <li><b>🧽 Borrar:</b> vacía por completo cada casilla que toques.</li>
+      <li>Las filas y columnas de cada solución se oscurecen solas; si dos soluciones chocan o repites personaje, se marcan en <b style="color:#ff8b7d">rojo</b>.</li>
+      <li>Toca una pista para ver en el plano a qué se refiere; con ✓ la tachas.</li>
     </ul>
     <h4>Para leer las pistas</h4>
     <ul>
-      <li><b>Al lado / pegados</b>: casillas contiguas <u>de la misma habitación</u>. Una pared de por medio no cuenta.</li>
+      <li><b>Al lado de</b>: casilla contigua (arriba, abajo, izquierda o derecha) <u>dentro de la misma habitación</u>. Una pared de por medio no cuenta, y las diagonales tampoco.</li>
+      <li>Las <b>puertas y ventanas</b> están en los muros: «junto a una ventana» es estar en una casilla que toca ese muro.</li>
       <li><b>Norte</b> es arriba y <b>oeste</b> es la izquierda del plano.</li>
-      <li><b>Ante</b> un mueble = en su misma casilla.</li>
-      <li>El borde del plano son los <b>muros exteriores</b> de la mansión.</li>
+      <li>«En la misma fila que una planta»: en esa fila hay alguna planta, en cualquier habitación.</li>
     </ul>
     <button class="btn" data-act="close-sheet">¡A investigar!</button>`);
 }
@@ -697,8 +837,8 @@ function openHowto() {
 function openSettings() {
   const row = (k, t, sub) => `<div class="row"><div>${t}<small>${sub}</small></div><button class="switch${settings[k] ? ' on' : ''}" data-act="toggle" data-k="${k}" aria-label="${t}"></button></div>`;
   openSheet('Ajustes', `
-    ${row('rowcol', 'Rayar filas y columnas ocupadas', 'Te recuerda dónde ya no puede ir nadie más.')}
-    ${row('conflicts', 'Marcar conflictos', 'Resalta en rojo dos personajes en la misma fila o columna.')}
+    ${row('rowcol', 'Oscurecer filas y columnas ocupadas', 'Al colocar a alguien, su fila y columna se oscurecen.')}
+    ${row('conflicts', 'Marcar conflictos', 'Borde rojo si dos soluciones comparten fila o columna, o si repites personaje.')}
     ${row('timer', 'Mostrar el cronómetro', 'El tiempo se sigue contando aunque lo ocultes.')}
     ${row('vibrate', 'Vibración', 'Respuesta háptica al tocar (si tu móvil lo permite).')}
     ${row('autofs', 'Pantalla completa automática', 'En móviles, al empezar un caso (no funciona en iPhone).')}
@@ -706,23 +846,21 @@ function openSettings() {
       <button class="btn ghost" data-act="sprites">Galería de sprites</button>
       <button class="btn ghost" data-act="howto">Cómo se juega</button>
       <button class="btn ghost" data-act="reset" style="color:#ff9c8f">Borrar todo el progreso</button>
-    </div>
-    <p class="hint" style="margin-top:14px;text-align:center">${esc(CONTENT.GAME.title)} · motor de puzles propio</p>`);
+    </div>`);
 }
 
 function openSprites() {
-  const tile = (kind, id, emoji, label) => `<div class="gal ${has(kind, id) ? 'ok' : 'miss'}"><div class="box">${has(kind, id) ? `<img class="sp" src="${spUrl(kind, id)}" alt="">` : emoji}</div>${esc(label)}</div>`;
+  const tile = (kind, id, fallback, label, note) => `<div class="gal ${has(kind, id) ? 'ok' : 'miss'}"><div class="box">${has(kind, id) ? `<img class="sp" src="${spUrl(kind, id)}" alt="">` : fallback}</div>${esc(label)}${note ? `<small>${esc(note)}</small>` : ''}</div>`;
   const sec = (title, list) => {
     const have = list.filter((x) => has(x.kind, x.id)).length;
-    return `<h4>${title} <small style="color:var(--muted);font-weight:400">${have}/${list.length}</small></h4><div class="gallery">${list.map((x) => tile(x.kind, x.id, x.emoji, x.label)).join('')}</div>`;
+    return `<h4>${title} <small style="color:var(--muted);font-weight:400">${have}/${list.length}</small></h4><div class="gallery">${list.map((x) => tile(x.kind, x.id, x.fb, x.label, x.note)).join('')}</div>`;
   };
+  const shapeNote = (it) => (it.shape === 'pair' ? '2×1' : it.shape === 'area' ? 'baldosa' : '') + (it.walk ? ' · se pisa' : '');
   openSheet('Galería de sprites', `
-    <p class="hint">Los que aparecen en gris todavía usan un dibujo provisional. Deja el PNG con el nombre indicado en su carpeta y se usará solo.</p>
-    ${sec('Personajes · sprites/characters/', CONTENT.CHARACTERS.map((c) => ({ kind: 'characters', id: c.id, emoji: c.emoji, label: c.id + '.png' })))}
-    ${sec('Muebles · sprites/items/', CONTENT.ITEMS.map((c) => ({ kind: 'items', id: c.id, emoji: c.emoji, label: c.id + '.png' })))}
-    ${sec('Armas · sprites/weapons/', CONTENT.WEAPONS.map((c) => ({ kind: 'weapons', id: c.id, emoji: c.emoji, label: c.id + '.png' })))}
-    ${sec('Suelos · sprites/floors/', CONTENT.ROOM_TYPES.map((c) => ({ kind: 'floors', id: c.id, emoji: '▦', label: c.id + '.png' })))}
-    ${sec('Decorado · sprites/decor/', CONTENT.DECOR.map((c) => ({ kind: 'decor', id: c.id, emoji: c.emoji, label: c.id + '.png' })))}`);
+    <p class="hint">Los que aparecen en gris aún usan un dibujo provisional. Deja el PNG con ese nombre en su carpeta y se usará solo.</p>
+    ${sec('Personajes · sprites/characters/', CONTENT.CHARACTERS.map((c) => ({ kind: 'characters', id: c.id, fb: `<span class="badge" style="--c:${c.color};width:40px;height:40px;font-size:18px">${c.mark}</span>`, label: c.id + '.png' })))}
+    ${sec('Muebles · sprites/items/', CONTENT.ITEMS.map((it) => ({ kind: 'items', id: it.id, fb: itemIcon(it.id), label: it.id + '.png', note: shapeNote(it) })))}
+    ${sec('Suelos · sprites/floors/', CONTENT.ROOM_TYPES.map((r) => ({ kind: 'floors', id: r.id, fb: `<span class="em sw" style="background:${r.color}"></span>`, label: r.id + '.png' })))}`);
 }
 
 // ------------------------------------------------------------ Eventos
@@ -744,7 +882,7 @@ document.addEventListener('click', (e) => {
     case 'toggle': {
       const k = el.dataset.k; settings[k] = !settings[k]; saveSettings();
       el.classList.toggle('on', settings[k]);
-      if (G) { drawBoard(); updateTimer(); }
+      if (G && $('#board')) { drawBoard(); updateTimer(); }
       return;
     }
     case 'reset':
@@ -754,6 +892,7 @@ document.addEventListener('click', (e) => {
       }
       return;
     case 'pick': e.stopPropagation(); return G && pick(+el.dataset.p);
+    case 'tool': return G && setTool(el.dataset.t);
     case 'cell': return G && tapCell(+el.dataset.i);
     case 'clue': return G && flashClue(+el.dataset.i);
     case 'chk': e.stopPropagation(); return G && toggleClueDone(+el.dataset.i);
@@ -761,14 +900,13 @@ document.addEventListener('click', (e) => {
     case 'hint': return G && doHint();
     case 'check': return G && doCheck();
     case 'accuse': return G && openAccuse();
-    case 'pick-suspect': U.acc.m = +el.dataset.p; $('#sheet-body').innerHTML = accuseHTML(); return;
-    case 'pick-weapon': U.acc.w = el.dataset.w; $('#sheet-body').innerHTML = accuseHTML(); return;
+    case 'pick-suspect': U.acc = +el.dataset.p; $('#sheet-body').innerHTML = accuseHTML(); return;
     case 'do-accuse': return doAccuse();
     case 'share': return shareResult();
     default: return undefined;
   }
 });
-$('#sheet-bg').addEventListener('click', closeSheet);
+$('#sheet-bg').addEventListener('click', () => closeSheet());
 
 // cronómetro
 setInterval(() => {
@@ -797,5 +935,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   renderHome();
   show('home');
   // para pruebas y depuración
-  window.__mdk = { get G() { return G; }, U, H, settings, startFree, startDaily, tapCell, pick, openAccuse, doAccuse, stats: () => stats };
+  window.__mdk = { get G() { return G; }, U, H, settings, startFree, startDaily, tapCell, pick, setTool, stats: () => stats };
 })();

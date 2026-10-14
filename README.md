@@ -1,6 +1,6 @@
 # Murdoku · juego web para móvil
 
-Rompecabezas de lógica en el que hay que colocar a todos los personajes en una mansión y descubrir **quién es el asesino y con qué arma**. Los casos se **generan automáticamente** (todos con solución única garantizada) y hay un **caso del día** igual para todos.
+Rompecabezas de lógica, al estilo de los libros de Murdoku de Manuel Garand: hay que colocar a todos los personajes en el plano de una mansión y descubrir **quién estuvo a solas con la víctima**. Los casos se **generan automáticamente** (todos con solución única garantizada) y hay un **caso del día** igual para todos.
 
 Está hecho como web app (PWA): se puede jugar desde el navegador o instalarla en la pantalla de inicio para que se vea **a pantalla completa, como una aplicación**, y funciona **sin conexión**.
 
@@ -25,7 +25,7 @@ y abre `http://localhost:8000`. (Para probarlo con el móvil en la misma wifi: `
 
 También sirve subirlo a un repositorio de GitHub y conectarlo a Netlify, igual que con GROOM. No hay nada que compilar.
 
-> Si cambias archivos de código y quieres forzar que todos los móviles lo recarguen, cambia el nombre de la caché en `sw.js` (`murdoku-v1` → `murdoku-v2`).
+> Si cambias archivos de código y quieres forzar que todos los móviles lo recarguen, cambia el nombre de la caché en `sw.js` (`murdoku-v2` → `murdoku-v3`).
 
 ## 3. Que se vea como una app a pantalla completa
 
@@ -38,67 +38,87 @@ También sirve subirlo a un repositorio de GitHub y conectarlo a Netlify, igual 
 
 ## 4. Tus sprites
 
-Los sprites son archivos **PNG** que dejas en la carpeta `sprites/`. **No hay que tocar código**: si el archivo existe, el juego lo usa; si no existe, dibuja un sustituto provisional (emoji o un círculo de color con la inicial). Puedes ir sustituyéndolos poco a poco.
+Los sprites son archivos **PNG** que dejas en la carpeta `sprites/`. **No hay que tocar código**: si el archivo existe, el juego lo usa; si no, dibuja un sustituto provisional (emoji, forma de color o círculo con la inicial). Puedes ir sustituyéndolos poco a poco.
 
-| Carpeta | Qué va | Nombre del archivo |
+| Carpeta | Qué va | Ejemplo |
 |---|---|---|
-| `sprites/characters/` | Personajes | `alfredo.png`, `irene.png`… y, opcional, `alfredo_dead.png` (cuando ese personaje es la víctima) |
-| `sprites/items/` | Muebles | `sofa.png`, `cama.png`, `nevera.png`… |
-| `sprites/weapons/` | Armas | `cuchillo.png`, `candelabro.png`… |
-| `sprites/floors/` | Suelo de cada tipo de habitación | `cocina.png`, `salon.png`… |
-| `sprites/decor/` | Adornos que solo decoran | `alfombra.png`, `cuadro.png`… |
+| `sprites/characters/` | Personajes (y, opcional, `<id>_dead.png` para cuando son la víctima) | `alfredo.png` |
+| `sprites/items/` | Muebles, vistos desde arriba | `cama.png`, `silla.png`, `mesa.png` |
+| `sprites/floors/` | Suelo de cada tipo de habitación (baldosa) | `cocina.png` |
 
-La lista completa de nombres está en **`sprites/LISTA.md`**. Dentro del juego, **Ajustes → Galería de sprites** enseña cuáles ya están colocados y cuáles faltan.
+La lista completa de nombres, con la forma de cada mueble, está en **`sprites/LISTA.md`**. Dentro del juego, **Ajustes → Galería de sprites** muestra cuáles faltan.
 
-**Formato recomendado**
+**Formas de los muebles** (importante para dibujarlos):
 
-- PNG con **fondo transparente** (menos los suelos), **cuadrados**, todos del mismo tamaño dentro de su categoría. 64×64 va bien; si haces pixel art de 16×16 o 32×32 también: se amplía **sin suavizar**, así que se ve nítido.
-- **Personajes:** de pie, centrados, ocupando casi todo el cuadro.
-- **Muebles y armas:** una pieza por casilla. Los personajes se dibujan encima del mueble, así que conviene que lo importante quede en la parte alta.
-- **Suelos:** una baldosa que se repite en cada casilla de la habitación; si encaja consigo misma sin costuras, mejor.
-- Cada puzle usa solo una parte: 4–7 habitaciones, 5–8 personajes y unas pocas armas, elegidos al azar.
+- **1 casilla** (silla, planta, sillón…): sprite cuadrado, p. ej. 64×64.
+- **2 casillas** (cama, sofá, bañera, piano, banco…): sprite **horizontal el doble de ancho que de alto** (p. ej. 128×64). Si el mueble cae en vertical, el juego lo gira 90°.
+- **Bloques** (mesas y alfombras): ocupan un rectángulo de varias casillas. El sprite es **una baldosa cuadrada** que se repite en cada casilla del bloque.
 
-### Añadir personajes, muebles, armas o habitaciones nuevas
+Pixel art pequeño (16×16, 32×32) se amplía sin suavizar, así que se ve nítido.
 
-Todo vive en `content.js`, en listas muy simples. Por ejemplo, para un personaje nuevo se añade una línea:
+### Añadir personajes, muebles o habitaciones
 
-```js
-{ id: 'marta', name: 'Marta', role: 'La periodista', color: '#7a4fb0', emoji: '📰' },
-```
+Todo vive en `content.js`:
 
-y se deja `sprites/characters/marta.png`. Un mueble nuevo (`id`, `name`, `det` = «un/una», `loc` = «en» si te sientas/estás encima o «ante» si estás delante, `emoji` provisional) debe además añadirse en `items:` de la habitación donde puede aparecer. Más personajes, habitaciones y muebles = más variedad.
+- **Personaje:** `{ id: 'nuria', name: 'Nuria', mark: 'N', g: 'f', role: 'La periodista', color: '#7a4fb0' }`. `mark` es la letra que sale en las marcas a lápiz: conviene que no se repita (el generador evita juntar dos personajes con la misma letra). `g` sirve para concordar «sentado/sentada».
+- **Mueble:** `walk: true` si se puede estar encima (sentado, tumbado…) y `false` si es obstáculo. `shape`: `'one'`, `'pair'` o `'area'` (con `size: [mín, máx]` casillas). `around: ['mesa']` hace que se coloque pegado a una mesa (así salen las sillas alrededor). `wall: true` lo arrima a una pared.
+- **Habitación:** su lista `furnish` dice qué muebles lleva, cuántos (`n: [mín, máx]`) y con qué probabilidad (`p`).
 
 ---
 
 ## 5. Cómo funciona
 
-**Reglas del puzle.** Hay un personaje por fila y por columna de una cuadrícula N×N. La víctima estaba en una habitación con un arma y solo había otra persona con ella: el asesino. Las pistas son siempre verdaderas.
+**Reglas** (las de los libros de Murdoku de Manuel Garand):
+
+- Plano N×N con N personas, la víctima incluida: **una por fila y una por columna**.
+- **Nadie puede estar en una casilla con obstáculo** (mesas, plantas, pianos, armarios…). Sí sobre sillas, sillones, sofás, camas, bancos, taburetes o alfombras.
+- **Puertas y ventanas están en los muros**, no ocupan casilla. «Junto a una ventana» = la casilla toca ese muro.
+- **«Al lado de»** = casilla contigua (no en diagonal) **dentro de la misma habitación**.
+- La víctima estaba **a solas con el asesino**: en su habitación solo había otra persona. No hay armas.
+
+**Tipos de pista** (40, cada una con varias redacciones):
+
+- **Habitación:** estaba o no estaba en ella.
+- **Muebles:** sentado/tumbado en…, al lado de…, sobre el suelo desnudo, la única persona sentada en…, nadie estaba en…
+- **Muros:** junto a una ventana o una puerta, junto a un muro exterior.
+- **Filas y columnas:** en la misma fila o columna que un mueble, en la fila más al norte, en la columna más al este…
+- **Entre personas:** misma habitación o distinta, a solas con…, en diagonal, más al norte o al oeste que…, exactamente una o dos filas o columnas de distancia.
+- **Recuentos:** cuánta gente había en una habitación, comparaciones entre habitaciones, cuántas habitaciones quedaron vacías.
+- **Escena del crimen:** qué muebles o ventanas había donde apareció el cuerpo.
 
 **Generador** (`engine.js`):
 
-1. Divide la cuadrícula en habitaciones, coloca muebles y armas, y elige una solución válida.
-2. Genera todas las pistas verdaderas posibles (más de 25 tipos: dónde estaba alguien, con quién, junto a qué mueble, quién estaba más al norte/oeste, cuántas personas había en una habitación, qué arma o escena del crimen se descarta…).
-3. Elige un conjunto de pistas y **comprueba con un solucionador que existe una única solución**; después quita todas las pistas que sobren.
-4. Los casos Fáciles se aseguran además de poder resolverse solo por deducción, sin tener que probar suerte.
+1. Divide el plano en habitaciones y las amuebla según su tipo: camas de 2 casillas, mesas con sillas alrededor, alfombras continuas, muebles grandes contra las paredes…
+2. Pone puertas entre habitaciones (todas quedan comunicadas) y ventanas en los muros exteriores.
+3. Elige una solución válida y genera todas las pistas verdaderas posibles.
+4. Selecciona pistas hasta que un solucionador comprueba que hay **una única solución**, y luego quita todas las que sobran. Los Fáciles, además, se resuelven sin tener que probar suerte.
 
-Es determinista: la misma semilla da exactamente el mismo caso en cualquier móvil (por eso el **caso del día** es igual para todos y no necesita servidor). Los casos libres usan una semilla aleatoria.
+Es determinista: la misma semilla da el mismo caso en cualquier móvil (así el **caso del día** es igual para todos sin servidor).
 
-| Nivel | Cuadrícula | Habitaciones |
-|---|---|---|
-| Fácil | 5×5 | 4 |
-| Normal | 6×6 | 5 |
-| Difícil | 7×7 | 6 |
-| Experto | 8×8 | 7 |
+| Nivel | Plano | Sospechosos | Habitaciones |
+|---|---|---|---|
+| Fácil | 5×5 | 4 | 4 |
+| Normal | 6×6 | 5 | 5 |
+| Difícil | 7×7 | 6 | 6 |
+| Experto | 8×8 | 7 | 7 |
 
-**Caso del día.** La dificultad sube durante la semana: lunes y martes Fácil, miércoles y jueves Normal, viernes y sábado Difícil, domingo Experto (se cambia en `DAILY_BY_DOW`, al principio de `app.js`).
+Caso del día: lunes y martes Fácil, miércoles y jueves Normal, viernes y sábado Difícil, domingo Experto (`DAILY_BY_DOW` en `app.js`).
 
-**Velocidad.** Se genera en un *Web Worker* para no bloquear la pantalla. En un móvil normal: Fácil/Normal/Difícil, menos de un par de segundos; Experto puede tardar unos segundos más (sale una animación de «Investigando el caso…»).
+**Marcado tipo sudoku**
 
-**Pruebas.** Con Node instalado:
+- Toca un personaje y luego una casilla para **colocarlo**. Tocar otra vez la misma casilla lo quita.
+- **✏️ Lápiz:** anota dónde podría estar el personaje elegido; tocar de nuevo quita la marca. Las marcas se conservan debajo de una solución y reaparecen al quitarla.
+- **⬛ Vacía:** oscurece casillas donde no puede haber nadie.
+- **🧽 Borrar:** vacía por completo cada casilla que toques.
+- Se oscurecen solas las casillas con obstáculo y las filas y columnas de cada solución.
+- **Borde rojo** si dos soluciones comparten fila o columna, o si un personaje está colocado dos veces.
+- **Deshacer**, **💡 Pista** (revela a un personaje) y **✔︎ Revisar** (señala errores sin dar la solución).
+
+**Pruebas** (con Node):
 
 ```
-node tools/test.mjs 20          # genera 20 puzles por nivel y verifica unicidad
-node tools/show.mjs normal abc  # imprime un puzle en texto
+node tools/test.mjs 20          # 20 casos por nivel, verifica solución única
+node tools/show.mjs normal abc  # imprime un caso en texto
 ```
 
 ## 6. Archivos
@@ -107,7 +127,7 @@ node tools/show.mjs normal abc  # imprime un puzle en texto
 index.html · style.css · app.js     interfaz y juego
 engine.js                           generador y solucionador
 texts.js                            redacción de las pistas
-content.js                          personajes, muebles, armas, habitaciones
+content.js                          personajes, muebles, habitaciones
 worker.js · sw.js                   generación en segundo plano · modo sin conexión
 manifest.webmanifest · icons/       instalación como app
 sprites/                            tus PNG

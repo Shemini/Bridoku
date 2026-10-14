@@ -1,2 +1,1 @@
 Deja aquí los PNG de esta carpeta. Los nombres exactos están en ../LISTA.md
-PNG con fondo transparente (salvo los suelos), cuadrados, p. ej. 64x64 px.

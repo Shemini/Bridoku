@@ -1,7 +1,7 @@
 // Service worker: permite jugar sin conexión.
 // Código (html/js/css): red primero y, si no hay red, lo guardado.
 // Sprites e iconos: se sirven al instante desde la caché y se actualizan en segundo plano.
-const CACHE = 'murdoku-v1';
+const CACHE = 'murdoku-v2';
 const CORE = ['./', 'index.html', 'style.css', 'app.js', 'engine.js', 'content.js', 'texts.js', 'worker.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 

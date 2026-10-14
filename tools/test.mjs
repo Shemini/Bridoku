@@ -1,14 +1,13 @@
 // Uso: node tools/test.mjs [cuantos] [dificultad]
 import { CONTENT } from '../content.js';
-import { generatePuzzle, verifyPuzzle, DIFFICULTIES, makeCtx, compileAll } from '../engine.js';
+import { generatePuzzle, verifyPuzzle, DIFFICULTIES, makeCtx, compileAll, sceneOf } from '../engine.js';
 
 const count = +(process.argv[2] || 5);
 const only = process.argv[3];
 
 // Comprobador independiente: fuerza bruta usando solo las evaluaciones "full" de cada pista.
 function bruteCount(puz) {
-  const scene = { N: puz.N, K: puz.K, roomOf: puz.roomOf, itemAt: puz.itemAt, weaponOfRoom: puz.weaponOfRoom, victim: puz.victim };
-  const ctx = makeCtx(scene, CONTENT);
+  const ctx = makeCtx(sceneOf(puz), CONTENT);
   const cons = compileAll(puz.clues, ctx);
   const N = puz.N;
   let found = 0;
@@ -22,7 +21,7 @@ function bruteCount(puz) {
       const counts = new Array(puz.K).fill(0);
       for (const x of pos) counts[puz.roomOf[x]]++;
       const vr = puz.roomOf[pos[puz.victim]];
-      if (counts[vr] !== 2 || !puz.weaponOfRoom[vr]) return;
+      if (counts[vr] !== 2) return;
       for (const k of cons.all) if (!k.full(pos)) return;
       found++;
       return;
@@ -32,6 +31,7 @@ function bruteCount(puz) {
       for (let c = 0; c < N; c++) {
         if (usedCol[c]) continue;
         const x = r * N + c;
+        if (!puz.walk[x]) continue;
         pos[p] = x; usedRow[r] = usedCol[c] = true;
         // poda: pistas unarias/binarias ya decidibles
         let ok = true;
@@ -49,6 +49,7 @@ function bruteCount(puz) {
 }
 
 const keys = only ? [only] : Object.keys(DIFFICULTIES);
+const typeUse = {};
 for (const key of keys) {
   const times = [], clueCounts = [], guesses = [];
   let bad = 0;
@@ -57,6 +58,7 @@ for (const key of keys) {
     const puz = generatePuzzle(CONTENT, key, 'test' + i);
     times.push(Date.now() - t);
     clueCounts.push(puz.clues.length);
+    for (const c of puz.clues) typeUse[c.t] = (typeUse[c.t] || 0) + 1;
     guesses.push(puz.rating.guesses);
     const v = verifyPuzzle(CONTENT, puz, 3);
     let status = v.count === 1 ? 'ok' : 'FALLO(' + v.count + ')';
@@ -70,3 +72,5 @@ for (const key of keys) {
   const avg = (a) => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1);
   console.log(`${key.padEnd(8)} ${DIFFICULTIES[key].N}x${DIFFICULTIES[key].N}  tiempo medio ${avg(times)}ms (max ${Math.max(...times)})  pistas ${avg(clueCounts)} [${Math.min(...clueCounts)}-${Math.max(...clueCounts)}]  adivinanzas ${avg(guesses)}  fallos ${bad}/${count}`);
 }
+
+console.log('Tipos de pista usados:', Object.entries(typeUse).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ':' + v).join(' '));

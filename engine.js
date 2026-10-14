@@ -1,16 +1,19 @@
 // ============================================================================
 //  MOTOR DEL MURDOKU
-//  - Genera una mansión (habitaciones, muebles, armas) y una solución.
+//  - Genera una mansión (habitaciones, muebles, puertas y ventanas) y una solución.
 //  - Genera pistas verdaderas y elige un conjunto que da UNA ÚNICA solución.
 //  - Todo es determinista a partir de una semilla (el "caso del día" es igual
 //    en todos los dispositivos).
 //  No depende del navegador: se usa igual en un Worker o en Node (tests).
 //
-//  Reglas del puzzle:
-//   1. Hay N personajes en una cuadrícula N×N: uno por fila y uno por columna.
-//   2. Las pistas son siempre verdaderas.
-//   3. La víctima estaba en una habitación con un arma (el arma del crimen)
-//      y a solas con el asesino (solo había otra persona con ella).
+//  Reglas del puzzle (como en los libros de Murdoku):
+//   1. Cuadrícula N×N con N personas (la víctima incluida): una por fila y una por columna.
+//   2. Nadie puede estar en una casilla con un obstáculo (mesa, planta, piano...).
+//      Sí se puede estar sobre sillas, sofás, camas, alfombras, bancos...
+//   3. Las pistas son siempre verdaderas.
+//   4. La víctima estaba a solas con el asesino: en su habitación solo había otra persona.
+//  "Al lado de" = casilla contigua (arriba, abajo, izquierda o derecha) de la misma habitación.
+//  Puertas y ventanas están en los muros: se está "junto a una ventana" si la casilla toca ese muro.
 // ============================================================================
 
 // ---------------------------------------------------------------- Aleatorio
@@ -33,9 +36,10 @@ export function makeRng(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const rng = {
+  return {
     next,
     int: (n) => Math.floor(next() * n),
+    range: (lo, hi) => lo + Math.floor(next() * (hi - lo + 1)),
     chance: (p) => next() < p,
     pick: (arr) => arr[Math.floor(next() * arr.length)],
     shuffle: (arr) => {
@@ -47,7 +51,6 @@ export function makeRng(seed) {
       return a2;
     },
   };
-  return rng;
 }
 
 function weightedPick(rng, items, wf) {
@@ -62,40 +65,47 @@ function weightedPick(rng, items, wf) {
   return items[items.length - 1];
 }
 
+// Direcciones de los muros de una casilla (bits): norte, este, sur, oeste.
+export const DIRS = [
+  { bit: 1, dr: -1, dc: 0, name: 'N' },
+  { bit: 2, dr: 0, dc: 1, name: 'E' },
+  { bit: 4, dr: 1, dc: 0, name: 'S' },
+  { bit: 8, dr: 0, dc: -1, name: 'W' },
+];
+const OPP = { 1: 4, 2: 8, 4: 1, 8: 2 };
+
 // ------------------------------------------------------------- Dificultades
-// weights: cuánto se favorece cada tipo de pista (1 = normal).
+// Pesos base de cada tipo de pista (1 = normal). Cada dificultad los ajusta.
+const BASE_W = {
+  IN_ROOM: 1.8, NOT_IN_ROOM: 1.1, ON: 2.8, NOT_ON: 0.9, FLOOR: 0.7, NOT_FLOOR: 0.6,
+  BESIDE: 2.8, NOT_BESIDE: 1, BESIDE_WIN: 2, NOT_BESIDE_WIN: 0.8, BESIDE_DOOR: 1.7, NOT_BESIDE_DOOR: 0.7,
+  ROW_HAS: 1, COL_HAS: 1, NOT_ROW_HAS: 0.5, NOT_COL_HAS: 0.5, LINE: 1.1, ON_EDGE: 0.6, NOT_EDGE: 0.6,
+  ALONE: 1.2, NOT_ALONE: 0.9, SAME_ROOM: 1.3, DIFF_ROOM: 0.9, ALONE_WITH: 1.5, DIAG: 0.6, NOT_DIAG: 0.3,
+  NORTH: 0.6, WEST: 0.6, ROW_OFF: 0.45, COL_OFF: 0.45,
+  ROOM_COUNT: 1.4, ROOM_GT: 0.9, ROOM_EQ: 0.6, EMPTY_ROOMS: 0.9,
+  NOBODY_ON: 1.1, ONLY_ON: 1.8, CRIME_HAS: 1.3, CRIME_NOT_HAS: 0.8, CRIME_WIN: 0.8, CRIME_NOWIN: 0.8,
+};
+// Familias: se penaliza repetir mucho la misma familia en un caso.
+const FAMILY = { ROW_OFF: 'off', COL_OFF: 'off', NORTH: 'dir', WEST: 'dir', DIAG: 'dir', NOT_DIAG: 'dir',
+  ROW_HAS: 'line', COL_HAS: 'line', NOT_ROW_HAS: 'line', NOT_COL_HAS: 'line', LINE: 'line' };
+const famOf = (t) => FAMILY[t] || t;
+const NEG = new Set(['NOT_IN_ROOM', 'NOT_ON', 'NOT_FLOOR', 'NOT_BESIDE', 'NOT_BESIDE_WIN', 'NOT_BESIDE_DOOR', 'NOT_ROW_HAS',
+  'NOT_COL_HAS', 'NOT_EDGE', 'NOT_ALONE', 'DIFF_ROOM', 'NOT_DIAG', 'ROOM_GT', 'ROOM_EQ', 'CRIME_NOT_HAS', 'NOBODY_ON']);
+const DIRECT = new Set(['IN_ROOM', 'ON', 'LINE', 'ROW_OFF', 'COL_OFF', 'ONLY_ON']);
+function weights(direct, neg) {
+  const w = {};
+  for (const k in BASE_W) w[k] = BASE_W[k] * (NEG.has(k) ? neg : 1) * (DIRECT.has(k) ? direct : 1);
+  return w;
+}
+
 export const DIFFICULTIES = {
-  facil: {
-    key: 'facil', label: 'Fácil', N: 5, K: 4, density: [0.55, 0.75],
-    maxGuesses: 0, minSupport: 2, attempts: 14,
-    weights: { IN_ROOM: 3, ON_ITEM: 3, NEXT_ITEM: 2, ROOM_COUNT: 2, SAME_ROOM: 1.6, ADJ4: 1.4, CRIME_WEAPON: 1.5, CRIME_ITEM: 1.5, CRIME_CAT: 1.2,
-      NOT_IN_ROOM: 1.2, DIFF_ROOM: 0.8, ABOVE: 0.9, LEFT: 0.9, ALONE: 1, NOT_ALONE: 1, ON_EDGE: 0.8, NOT_EDGE: 0.8, DIAG: 1,
-      NOT_ON_ITEM: 0.5, NOT_NEXT_ITEM: 0.4, NOT_NEAR: 0.3, ROOM_GT: 0.8, ROOM_EQ: 0.5, CRIME_NOT_WEAPON: 0.6, CRIME_NOT_CAT: 0.5, CRIME_NOT_ITEM: 0.5 },
-  },
-  normal: {
-    key: 'normal', label: 'Normal', N: 6, K: 5, density: [0.45, 0.65],
-    maxGuesses: 3, minSupport: 4, attempts: 14,
-    weights: { IN_ROOM: 1.6, ON_ITEM: 1.8, NEXT_ITEM: 1.6, ROOM_COUNT: 1.6, SAME_ROOM: 1.4, ADJ4: 1.4, CRIME_WEAPON: 1, CRIME_ITEM: 1.2, CRIME_CAT: 1,
-      NOT_IN_ROOM: 1.4, DIFF_ROOM: 1, ABOVE: 1.1, LEFT: 1.1, ALONE: 1.1, NOT_ALONE: 1.1, ON_EDGE: 0.8, NOT_EDGE: 0.8, DIAG: 1.2,
-      NOT_ON_ITEM: 0.8, NOT_NEXT_ITEM: 0.7, NOT_NEAR: 0.6, ROOM_GT: 1, ROOM_EQ: 0.8, CRIME_NOT_WEAPON: 0.9, CRIME_NOT_CAT: 0.8, CRIME_NOT_ITEM: 0.8 },
-  },
-  dificil: {
-    key: 'dificil', label: 'Difícil', N: 7, K: 6, density: [0.4, 0.6],
-    maxGuesses: 1e9, minGuesses: 1, minSupport: 5, attempts: 12,
-    weights: { IN_ROOM: 0.9, ON_ITEM: 1.2, NEXT_ITEM: 1.2, ROOM_COUNT: 1.2, SAME_ROOM: 1.2, ADJ4: 1.3, CRIME_WEAPON: 0.7, CRIME_ITEM: 1, CRIME_CAT: 0.8,
-      NOT_IN_ROOM: 1.5, DIFF_ROOM: 1.3, ABOVE: 1.4, LEFT: 1.4, ALONE: 1.2, NOT_ALONE: 1.3, ON_EDGE: 0.8, NOT_EDGE: 0.9, DIAG: 1.3,
-      NOT_ON_ITEM: 1.1, NOT_NEXT_ITEM: 1, NOT_NEAR: 1, ROOM_GT: 1.4, ROOM_EQ: 1.1, CRIME_NOT_WEAPON: 1.2, CRIME_NOT_CAT: 1.1, CRIME_NOT_ITEM: 1.1 },
-  },
-  experto: {
-    key: 'experto', label: 'Experto', N: 8, K: 7, density: [0.35, 0.55],
-    maxGuesses: 1e9, minGuesses: 2, minSupport: 6, attempts: 10,
-    weights: { IN_ROOM: 0.6, ON_ITEM: 0.9, NEXT_ITEM: 1, ROOM_COUNT: 1, SAME_ROOM: 1, ADJ4: 1.2, CRIME_WEAPON: 0.5, CRIME_ITEM: 0.9, CRIME_CAT: 0.7,
-      NOT_IN_ROOM: 1.6, DIFF_ROOM: 1.5, ABOVE: 1.6, LEFT: 1.6, ALONE: 1.2, NOT_ALONE: 1.5, ON_EDGE: 0.7, NOT_EDGE: 1, DIAG: 1.3,
-      NOT_ON_ITEM: 1.3, NOT_NEXT_ITEM: 1.2, NOT_NEAR: 1.3, ROOM_GT: 1.6, ROOM_EQ: 1.3, CRIME_NOT_WEAPON: 1.4, CRIME_NOT_CAT: 1.3, CRIME_NOT_ITEM: 1.3 },
-  },
+  facil:   { key: 'facil',   label: 'Fácil',   N: 5, K: 4, obst: 0.30, maxGuesses: 0,   minSupport: 2, attempts: 16, weights: weights(1.6, 0.5) },
+  normal:  { key: 'normal',  label: 'Normal',  N: 6, K: 5, obst: 0.30, maxGuesses: 3,   minSupport: 3, attempts: 16, weights: weights(1.1, 0.9) },
+  dificil: { key: 'dificil', label: 'Difícil', N: 7, K: 6, obst: 0.32, maxGuesses: 1e9, minGuesses: 1, minSupport: 4, attempts: 14, weights: weights(0.8, 1.3) },
+  experto: { key: 'experto', label: 'Experto', N: 8, K: 7, obst: 0.32, maxGuesses: 1e9, minGuesses: 2, minSupport: 5, attempts: 12, weights: weights(0.6, 1.6) },
 };
 
-// ------------------------------------------------------------------ Escena
+// ------------------------------------------------------------------ Plano
 function genLayout(rng, N, K) {
   const NN = N * N;
   for (let attempt = 0; attempt < 300; attempt++) {
@@ -145,53 +155,228 @@ function genLayout(rng, N, K) {
   return null;
 }
 
+function neighbor(N, x, d) {
+  const r = ((x / N) | 0) + d.dr, c = (x % N) + d.dc;
+  if (r < 0 || r >= N || c < 0 || c >= N) return -1;
+  return r * N + c;
+}
+// ¿hay muro en ese lado? (borde exterior o cambio de habitación)
+function isWall(N, roomOf, x, d) {
+  const y = neighbor(N, x, d);
+  return y < 0 || roomOf[y] !== roomOf[x];
+}
+
+// --------------------------------------------------------------- Amueblar
+function furnish(rng, content, D, N, roomOf, typeIds, K) {
+  const NN = N * N;
+  const cellObj = new Array(NN).fill(-1);
+  const objs = [];
+  const walk = new Array(NN).fill(1);
+  const rowWalk = new Array(N).fill(N), colWalk = new Array(N).fill(N);
+  const roomCells = Array.from({ length: K }, () => []);
+  roomOf.forEach((r, x) => roomCells[r].push(x));
+  const free = (x, r) => x >= 0 && roomOf[x] === r && cellObj[x] === -1;
+  const wallCell = (x) => DIRS.some((d) => isWall(N, roomOf, x, d));
+
+  for (let r = 0; r < K; r++) {
+    const type = content.roomTypeMap[typeIds[r]];
+    const cells = roomCells[r];
+    const maxObst = Math.max(1, Math.floor(cells.length * D.obst + rng.next() * 0.8));
+    let obstUsed = 0;
+    let walkLeft = cells.length;
+
+    const canPlace = (item, xs) => {
+      if (item.walk) return true;
+      if (obstUsed + xs.length > maxObst) return false;
+      if (walkLeft - xs.length < 2) return false;
+      const dr = {}, dc = {};
+      for (const x of xs) { dr[(x / N) | 0] = (dr[(x / N) | 0] || 0) + 1; dc[x % N] = (dc[x % N] || 0) + 1; }
+      for (const k in dr) if (rowWalk[k] - dr[k] < 2) return false;
+      for (const k in dc) if (colWalk[k] - dc[k] < 2) return false;
+      return true;
+    };
+    const commit = (item, xs) => {
+      const id = objs.length;
+      objs.push({ t: item.id, cells: xs.slice().sort((a, b) => a - b) });
+      for (const x of xs) {
+        cellObj[x] = id;
+        if (!item.walk) { walk[x] = 0; rowWalk[(x / N) | 0]--; colWalk[x % N]--; }
+      }
+      if (!item.walk) { obstUsed += xs.length; walkLeft -= xs.length; }
+    };
+    const nextToTypes = (x, types) => DIRS.some((d) => {
+      const y = neighbor(N, x, d);
+      return y >= 0 && roomOf[y] === r && cellObj[y] >= 0 && types.includes(objs[cellObj[y]].t);
+    });
+
+    const placeOne = (item) => {
+      const fr = cells.filter((x) => free(x, r));
+      if (item.shape === 'one') {
+        let cand = fr;
+        if (item.around) cand = cand.filter((x) => nextToTypes(x, item.around));
+        if (item.around && !cand.length) return false;
+        if (item.wall) { const w = cand.filter(wallCell); if (w.length) cand = w; }
+        cand = rng.shuffle(cand);
+        for (const x of cand) if (canPlace(item, [x])) { commit(item, [x]); return true; }
+        return false;
+      }
+      if (item.shape === 'pair') {
+        let pairs = [];
+        for (const x of fr) {
+          for (const d of [DIRS[1], DIRS[2]]) {
+            const y = neighbor(N, x, d);
+            if (free(y, r)) pairs.push([x, y]);
+          }
+        }
+        if (item.wall) {
+          // las dos casillas pegadas al mismo muro (p. ej. una cama con el cabecero en la pared)
+          const w = pairs.filter(([x, y]) => DIRS.some((d) => isWall(N, roomOf, x, d) && isWall(N, roomOf, y, d)));
+          if (w.length) pairs = w;
+        }
+        pairs = rng.shuffle(pairs);
+        for (const pr of pairs) if (canPlace(item, pr)) { commit(item, pr); return true; }
+        return false;
+      }
+      // área rectangular
+      const [s0, s1] = item.size;
+      const rects = [];
+      for (const x of fr) {
+        const r0 = (x / N) | 0, c0 = x % N;
+        for (let h = 1; h <= 3; h++) {
+          for (let w = 1; w <= 3; w++) {
+            const n = h * w;
+            if (n < s0 || n > s1) continue;
+            if (r0 + h > N || c0 + w > N) continue;
+            const xs = [];
+            let ok = true;
+            for (let i = 0; i < h && ok; i++) for (let j = 0; j < w; j++) {
+              const y = (r0 + i) * N + c0 + j;
+              if (!free(y, r)) { ok = false; break; }
+              xs.push(y);
+            }
+            if (ok) rects.push(xs);
+          }
+        }
+      }
+      if (!rects.length) return false;
+      // mesas: deja sitio alrededor para las sillas · alfombras: preferir grandes
+      const score = (xs) => {
+        let ring = 0;
+        const set = new Set(xs);
+        for (const x of xs) for (const d of DIRS) { const y = neighbor(N, x, d); if (free(y, r) && !set.has(y)) ring++; }
+        return item.walk ? xs.length * 2 + rng.next() * 3 : Math.min(ring, 6) + rng.next() * 3;
+      };
+      const sorted = rects.map((xs) => ({ xs, s: score(xs) })).sort((a, b) => b.s - a.s);
+      for (const o of sorted.slice(0, 6)) if (canPlace(item, o.xs)) { commit(item, o.xs); return true; }
+      return false;
+    };
+
+    for (const f of type.furnish) {
+      if (f.p !== undefined && !rng.chance(f.p)) continue;
+      const item = content.itemMap[f.t];
+      const n = rng.range(f.n[0], f.n[1]);
+      for (let i = 0; i < n; i++) if (!placeOne(item)) break;
+    }
+  }
+  return { cellObj, objs, walk };
+}
+
+// --------------------------------------------------------- Puertas y ventanas
+function placeOpenings(rng, N, roomOf, typeIds, K, cellObj, objs, content) {
+  const NN = N * N;
+  const winAt = new Array(NN).fill(0), doorAt = new Array(NN).fill(0);
+  // puertas entre habitaciones vecinas
+  const shared = {};
+  for (let x = 0; x < NN; x++) {
+    for (const d of [DIRS[1], DIRS[2]]) {
+      const y = neighbor(N, x, d);
+      if (y < 0 || roomOf[y] === roomOf[x]) continue;
+      const a = Math.min(roomOf[x], roomOf[y]), b = Math.max(roomOf[x], roomOf[y]);
+      (shared[a + ',' + b] = shared[a + ',' + b] || []).push([x, d, y]);
+    }
+  }
+  const keys = rng.shuffle(Object.keys(shared));
+  // árbol de conexión (todas las habitaciones accesibles) + alguna puerta extra
+  const parent = [...Array(K).keys()];
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (const k of keys) {
+    const [a, b] = k.split(',').map(Number);
+    const join = find(a) !== find(b);
+    if (!join && !rng.chance(0.2)) continue;
+    parent[find(a)] = find(b);
+    const [x, d, y] = rng.pick(shared[k]);
+    doorAt[x] |= d.bit;
+    doorAt[y] |= OPP[d.bit];
+  }
+  // ventanas en los muros exteriores
+  for (let r = 0; r < K; r++) {
+    if (typeIds[r] === 'jardin') continue;
+    const outer = [];
+    for (let x = 0; x < NN; x++) {
+      if (roomOf[x] !== r) continue;
+      for (const d of DIRS) if (neighbor(N, x, d) < 0) outer.push([x, d]);
+    }
+    if (!outer.length) continue;
+    const n = typeIds[r] === 'invernadero' ? rng.range(2, 3) : rng.range(0, 2);
+    for (const [x, d] of rng.shuffle(outer).slice(0, n)) winAt[x] |= d.bit;
+  }
+  // puerta principal en el exterior (en el vestíbulo si lo hay)
+  let main = typeIds.indexOf('vestibulo');
+  if (main < 0) main = rng.int(K);
+  const outerMain = [];
+  for (let x = 0; x < NN; x++) {
+    if (roomOf[x] !== main) continue;
+    for (const d of DIRS) if (neighbor(N, x, d) < 0 && !(winAt[x] & d.bit)) outerMain.push([x, d]);
+  }
+  if (outerMain.length) { const [x, d] = rng.pick(outerMain); doorAt[x] |= d.bit; }
+  return { winAt, doorAt };
+}
+
+// ------------------------------------------------------------------ Escena
+// Permutación aleatoria fila→columna que solo usa casillas transitables.
+function randomPlacement(rng, N, walk) {
+  const cols = new Array(N).fill(-1), used = new Array(N).fill(false);
+  const rows = rng.shuffle([...Array(N).keys()]);
+  let steps = 0;
+  const rec = (i) => {
+    if (i === N) return true;
+    if (++steps > 4000) return false;
+    const r = rows[i];
+    for (const c of rng.shuffle([...Array(N).keys()])) {
+      if (used[c] || !walk[r * N + c]) continue;
+      used[c] = true; cols[r] = c;
+      if (rec(i + 1)) return true;
+      used[c] = false;
+    }
+    return false;
+  };
+  return rec(0) ? cols : null;
+}
+
 function buildScene(rng, content, D) {
   const N = D.N, K = D.K, NN = N * N;
   const roomOf = genLayout(rng, N, K);
   if (!roomOf) return null;
   const typeIds = rng.shuffle(content.ROOM_TYPES.map((t) => t.id)).slice(0, K);
-  const roomCells = Array.from({ length: K }, () => []);
-  roomOf.forEach((r, x) => roomCells[r].push(x));
-
-  const itemAt = new Array(NN).fill('');
-  const decorAt = new Array(NN).fill('');
-  for (let r = 0; r < K; r++) {
-    const type = content.roomTypeMap[typeIds[r]];
-    const cells = rng.shuffle(roomCells[r]);
-    const dens = D.density[0] + rng.next() * (D.density[1] - D.density[0]);
-    const cnt = Math.max(2, Math.min(cells.length - 1, Math.round(cells.length * dens)));
-    const kinds = rng.shuffle(type.items);
-    for (let i = 0; i < cnt; i++) itemAt[cells[i]] = kinds[i % kinds.length];
+  const { cellObj, objs, walk } = furnish(rng, content, D, N, roomOf, typeIds, K);
+  const { winAt, doorAt } = placeOpenings(rng, N, roomOf, typeIds, K, cellObj, objs, content);
+  // personajes con letras distintas
+  const persons = [];
+  const seenMark = new Set();
+  for (const c of rng.shuffle(content.CHARACTERS)) {
+    if (persons.length >= N) break;
+    if (seenMark.has(c.mark)) continue;
+    seenMark.add(c.mark); persons.push(c.id);
   }
+  if (persons.length < N) for (const c of content.CHARACTERS) if (persons.length < N && !persons.includes(c.id)) persons.push(c.id);
 
-  // armas: una por habitación en W habitaciones
-  const W = Math.min(content.WEAPONS.length, K >= 6 ? K - 2 : K - 1);
-  const weaponRooms = rng.shuffle([...Array(K).keys()]).slice(0, W);
-  const weapons = rng.shuffle(content.WEAPONS.map((w) => w.id)).slice(0, W);
-  const weaponOfRoom = new Array(K).fill('');
-  weaponRooms.forEach((r, i) => {
-    const free = roomCells[r].filter((x) => !itemAt[x]);
-    const x = free.length ? rng.pick(free) : rng.pick(roomCells[r]);
-    itemAt[x] = weapons[i];
-    weaponOfRoom[r] = weapons[i];
-  });
-
-  // decorado
-  for (let x = 0; x < NN; x++) {
-    if (itemAt[x]) continue;
-    const type = content.roomTypeMap[typeIds[roomOf[x]]];
-    if (type.decor.length && rng.chance(0.2)) decorAt[x] = rng.pick(type.decor);
-  }
-
-  const persons = rng.shuffle(content.CHARACTERS.map((c) => c.id)).slice(0, N);
-
-  // solución: permutación + víctima en habitación con arma y exactamente 2 personas
-  for (let attempt = 0; attempt < 800; attempt++) {
-    const cols = rng.shuffle([...Array(N).keys()]);
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const cols = randomPlacement(rng, N, walk);
+    if (!cols) return null;
     const counts = new Array(K).fill(0);
     for (let r = 0; r < N; r++) counts[roomOf[r * N + cols[r]]]++;
     const rooms2 = [];
-    for (let r = 0; r < K; r++) if (counts[r] === 2 && weaponOfRoom[r]) rooms2.push(r);
+    for (let r = 0; r < K; r++) if (counts[r] === 2) rooms2.push(r);
     if (!rooms2.length) continue;
     const crimeRoom = rng.pick(rooms2);
     const rowsOrder = rng.shuffle([...Array(N).keys()]);
@@ -201,62 +386,78 @@ function buildScene(rng, content, D) {
     for (let p = 0; p < N; p++) if (roomOf[solution[p]] === crimeRoom) inRoom.push(p);
     const victim = rng.pick(inRoom);
     const murderer = inRoom[0] === victim ? inRoom[1] : inRoom[0];
-    return { N, K, roomOf, typeIds, itemAt, decorAt, weaponOfRoom, persons, solution, victim, murderer, crimeRoom };
+    return { N, K, roomOf, typeIds, cellObj, objs, walk, winAt, doorAt, persons, solution, victim, murderer, crimeRoom };
   }
   return null;
 }
 
 // ------------------------------------------------------------------ Contexto
 function makeCtx(scene, content) {
-  const { N, K, roomOf, itemAt, weaponOfRoom, victim } = scene;
+  const { N, K, roomOf, cellObj, objs, walk, winAt, doorAt, victim } = scene;
   const NN = N * N;
   const roomCells = Array.from({ length: K }, () => []);
   roomOf.forEach((r, x) => roomCells[r].push(x));
-  const roomItems = Array.from({ length: K }, () => new Set());
+  const cellType = cellObj.map((o) => (o >= 0 ? objs[o].t : ''));
+  const roomTypes = Array.from({ length: K }, () => new Set());
+  for (let x = 0; x < NN; x++) if (cellType[x]) roomTypes[roomOf[x]].add(cellType[x]);
+  const roomWin = new Array(K).fill(false);
+  for (let x = 0; x < NN; x++) if (winAt[x]) roomWin[roomOf[x]] = true;
+  // tipos de mueble "al lado" de cada casilla (misma habitación, otro objeto)
+  const beside = Array.from({ length: NN }, () => new Set());
   for (let x = 0; x < NN; x++) {
-    const it = itemAt[x];
-    if (it && !content.weaponMap[it]) roomItems[roomOf[x]].add(it);
+    for (const d of DIRS) {
+      const y = neighbor(N, x, d);
+      if (y < 0 || roomOf[y] !== roomOf[x] || cellObj[y] < 0) continue;
+      if (cellObj[y] === cellObj[x]) continue;
+      beside[x].add(cellType[y]);
+    }
   }
+  const rowTypes = Array.from({ length: N }, () => new Set()), colTypes = Array.from({ length: N }, () => new Set());
+  for (let x = 0; x < NN; x++) if (cellType[x]) { rowTypes[(x / N) | 0].add(cellType[x]); colTypes[x % N].add(cellType[x]); }
+  const typesPresent = [...new Set(cellType.filter(Boolean))];
   return {
-    N, NN, K, roomOf, itemAt, weaponOfRoom, victim, roomCells, roomItems,
-    weaponCat: (w) => (w && content.weaponMap[w] ? content.weaponMap[w].cat : ''),
-    isWeapon: (id) => !!content.weaponMap[id],
+    N, NN, K, roomOf, walk, cellObj, cellType, objs, winAt, doorAt, victim, roomCells, roomTypes, roomWin,
+    beside, rowTypes, colTypes, typesPresent,
+    walkTypes: typesPresent.filter((t) => content.itemMap[t].walk),
+    hasWin: winAt.some(Boolean), hasDoor: doorAt.some(Boolean),
   };
 }
 
+const row = (N, x) => (x / N) | 0;
+const col = (N, x) => x % N;
+const isEdge = (N, x) => row(N, x) === 0 || row(N, x) === N - 1 || col(N, x) === 0 || col(N, x) === N - 1;
+function lineOf(N, x, side) {
+  if (side === 'N') return row(N, x) === 0;
+  if (side === 'S') return row(N, x) === N - 1;
+  if (side === 'W') return col(N, x) === 0;
+  return col(N, x) === N - 1;
+}
+
 // ------------------------------------------------------------ Pistas posibles
-function trueClues(scene, ctx, content, rng) {
-  const { N, K, roomOf, itemAt, weaponOfRoom } = ctx;
+function trueClues(scene, ctx, rng) {
+  const { N, K, roomOf, cellType, beside, winAt, doorAt, rowTypes, colTypes, typesPresent, walkTypes } = ctx;
   const pos = scene.solution;
   const out = [];
-  const row = (x) => (x / N) | 0, col = (x) => x % N;
   const add = (d) => { d.v = rng.int(3); out.push(d); };
-
-  const ids = [...new Set(itemAt.filter(Boolean))];
-  const kinds = ids.filter((i) => !ctx.isWeapon(i));
-  const weaponsPresent = weaponOfRoom.filter(Boolean);
-  const catsPresent = [...new Set(weaponsPresent.map((w) => ctx.weaponCat(w)))];
-
-  const nextItem = (x, id) => {
-    const r = row(x), c = col(x);
-    const nb = [];
-    if (r > 0) nb.push(x - N); if (r < N - 1) nb.push(x + N);
-    if (c > 0) nb.push(x - 1); if (c < N - 1) nb.push(x + 1);
-    return nb.some((n) => roomOf[n] === roomOf[x] && itemAt[n] === id);
-  };
   const roomCount = new Array(K).fill(0);
   for (let p = 0; p < N; p++) roomCount[roomOf[pos[p]]]++;
+  const obstTypes = typesPresent.filter((t) => !walkTypes.includes(t));
 
   for (let p = 0; p < N; p++) {
     const x = pos[p], r = roomOf[x];
     add({ t: 'IN_ROOM', a: p, r });
     for (let r2 = 0; r2 < K; r2++) if (r2 !== r) add({ t: 'NOT_IN_ROOM', a: p, r: r2 });
-    for (const id of ids) {
-      add(itemAt[x] === id ? { t: 'ON_ITEM', a: p, k: id } : { t: 'NOT_ON_ITEM', a: p, k: id });
-      add(nextItem(x, id) ? { t: 'NEXT_ITEM', a: p, k: id } : { t: 'NOT_NEXT_ITEM', a: p, k: id });
+    for (const t of walkTypes) add(cellType[x] === t ? { t: 'ON', a: p, k: t } : { t: 'NOT_ON', a: p, k: t });
+    add({ t: cellType[x] ? 'NOT_FLOOR' : 'FLOOR', a: p });
+    for (const t of typesPresent) add(beside[x].has(t) ? { t: 'BESIDE', a: p, k: t } : { t: 'NOT_BESIDE', a: p, k: t });
+    if (ctx.hasWin) add({ t: winAt[x] ? 'BESIDE_WIN' : 'NOT_BESIDE_WIN', a: p });
+    if (ctx.hasDoor) add({ t: doorAt[x] ? 'BESIDE_DOOR' : 'NOT_BESIDE_DOOR', a: p });
+    for (const t of obstTypes) {
+      add({ t: rowTypes[row(N, x)].has(t) ? 'ROW_HAS' : 'NOT_ROW_HAS', a: p, k: t });
+      add({ t: colTypes[col(N, x)].has(t) ? 'COL_HAS' : 'NOT_COL_HAS', a: p, k: t });
     }
-    const edge = row(x) === 0 || row(x) === N - 1 || col(x) === 0 || col(x) === N - 1;
-    add({ t: edge ? 'ON_EDGE' : 'NOT_EDGE', a: p });
+    for (const side of ['N', 'S', 'W', 'E']) if (lineOf(N, x, side)) add({ t: 'LINE', a: p, side });
+    add({ t: isEdge(N, x) ? 'ON_EDGE' : 'NOT_EDGE', a: p });
     add({ t: roomCount[r] === 1 ? 'ALONE' : 'NOT_ALONE', a: p });
   }
   for (let p = 0; p < N; p++) {
@@ -264,12 +465,15 @@ function trueClues(scene, ctx, content, rng) {
       const x = pos[p], y = pos[q];
       const same = roomOf[x] === roomOf[y];
       add({ t: same ? 'SAME_ROOM' : 'DIFF_ROOM', a: p, b: q });
-      const dr = Math.abs(row(x) - row(y)), dc = Math.abs(col(x) - col(y));
-      if (same && dr + dc === 1) add({ t: 'ADJ4', a: p, b: q });
-      else if (same && dr === 1 && dc === 1) add({ t: 'DIAG', a: p, b: q });
-      else if (!(same && Math.max(dr, dc) === 1)) add({ t: 'NOT_NEAR', a: p, b: q });
-      add(row(x) < row(y) ? { t: 'ABOVE', a: p, b: q } : { t: 'ABOVE', a: q, b: p });
-      add(col(x) < col(y) ? { t: 'LEFT', a: p, b: q } : { t: 'LEFT', a: q, b: p });
+      if (same && roomCount[roomOf[x]] === 2 && p !== scene.victim && q !== scene.victim) add({ t: 'ALONE_WITH', a: p, b: q });
+      const dr = Math.abs(row(N, x) - row(N, y)), dc = Math.abs(col(N, x) - col(N, y));
+      add({ t: dr === 1 && dc === 1 ? 'DIAG' : 'NOT_DIAG', a: p, b: q });
+      const [nn, ss] = row(N, x) < row(N, y) ? [p, q] : [q, p];
+      add({ t: 'NORTH', a: nn, b: ss });
+      if (dr <= 2) add({ t: 'ROW_OFF', a: nn, b: ss, k: dr });
+      const [ww, ee] = col(N, x) < col(N, y) ? [p, q] : [q, p];
+      add({ t: 'WEST', a: ww, b: ee });
+      if (dc <= 2) add({ t: 'COL_OFF', a: ww, b: ee, k: dc });
     }
   }
   for (let r = 0; r < K; r++) {
@@ -280,98 +484,126 @@ function trueClues(scene, ctx, content, rng) {
       else if (roomCount[r] > 0) add({ t: 'ROOM_EQ', r, r2 });
     }
   }
-  const vr = roomOf[pos[scene.victim]];
-  const vw = weaponOfRoom[vr];
-  const vcat = ctx.weaponCat(vw);
-  add({ t: 'CRIME_WEAPON', w: vw });
-  for (const w of weaponsPresent) if (w !== vw) add({ t: 'CRIME_NOT_WEAPON', w });
-  add({ t: 'CRIME_CAT', cat: vcat });
-  for (const c of catsPresent) if (c !== vcat) add({ t: 'CRIME_NOT_CAT', cat: c });
-  for (const k of kinds) add(ctx.roomItems[vr].has(k) ? { t: 'CRIME_ITEM', k } : { t: 'CRIME_NOT_ITEM', k });
+  add({ t: 'EMPTY_ROOMS', n: roomCount.filter((c) => c === 0).length });
+  for (const t of walkTypes) {
+    const on = [];
+    for (let p = 0; p < N; p++) if (cellType[pos[p]] === t) on.push(p);
+    if (on.length === 0) add({ t: 'NOBODY_ON', k: t });
+    else if (on.length === 1) add({ t: 'ONLY_ON', a: on[0], k: t });
+  }
+  const cr = roomOf[pos[scene.victim]];
+  for (const t of typesPresent) add({ t: ctx.roomTypes[cr].has(t) ? 'CRIME_HAS' : 'CRIME_NOT_HAS', k: t });
+  if (ctx.hasWin) add({ t: ctx.roomWin[cr] ? 'CRIME_WIN' : 'CRIME_NOWIN' });
   return out;
 }
 
 // ------------------------------------------------------------- Compilación
+// Cada pista se traduce en una o varias restricciones:
+//   un : sobre la casilla de una persona   · bin : entre dos personas
+//   cnt: recuentos por habitación (se comprueban con el resumen de dominios)
 function compileClue(c, ctx) {
-  const { N, roomOf, itemAt, K, weaponOfRoom, roomItems } = ctx;
+  const { N, roomOf, cellType, beside, winAt, doorAt, rowTypes, colTypes, K, roomTypes, roomWin, victim } = ctx;
   const R = (x) => roomOf[x];
-  const row = (x) => (x / N) | 0, col = (x) => x % N;
-  const un = (a, f) => ({ kind: 'un', def: c, a, f, vars: [a], full: (pos) => f(pos[a]) });
-  const bin = (a, b, f) => ({ kind: 'bin', def: c, a, b, f, vars: [a, b], full: (pos) => f(pos[a], pos[b]) });
-  const nextItem = (x, id) => {
-    const r = row(x), cc = col(x);
-    if (r > 0 && roomOf[x - N] === roomOf[x] && itemAt[x - N] === id) return true;
-    if (r < N - 1 && roomOf[x + N] === roomOf[x] && itemAt[x + N] === id) return true;
-    if (cc > 0 && roomOf[x - 1] === roomOf[x] && itemAt[x - 1] === id) return true;
-    if (cc < N - 1 && roomOf[x + 1] === roomOf[x] && itemAt[x + 1] === id) return true;
-    return false;
-  };
-  const edge = (x) => row(x) === 0 || row(x) === N - 1 || col(x) === 0 || col(x) === N - 1;
-  const dR = (x, y) => Math.abs(row(x) - row(y)), dC = (x, y) => Math.abs(col(x) - col(y));
+  const parts = [];
+  const un = (a, f) => parts.push({ kind: 'un', a, f, full: (pos) => f(pos[a]) });
+  const bin = (a, b, f) => parts.push({ kind: 'bin', a, b, f, full: (pos) => f(pos[a], pos[b]) });
   const counts = (pos) => { const k = new Array(K).fill(0); for (const x of pos) k[roomOf[x]]++; return k; };
-  const cnt = (full, check) => ({ kind: 'cnt', def: c, vars: null, full, check });
-  const bit = (r) => 1 << r;
+  const cnt = (full, check, extra = {}) => parts.push(Object.assign({ kind: 'cnt', full, check }, extra));
 
   switch (c.t) {
-    case 'IN_ROOM': return un(c.a, (x) => R(x) === c.r);
-    case 'NOT_IN_ROOM': return un(c.a, (x) => R(x) !== c.r);
-    case 'ON_ITEM': return un(c.a, (x) => itemAt[x] === c.k);
-    case 'NOT_ON_ITEM': return un(c.a, (x) => itemAt[x] !== c.k);
-    case 'NEXT_ITEM': return un(c.a, (x) => nextItem(x, c.k));
-    case 'NOT_NEXT_ITEM': return un(c.a, (x) => !nextItem(x, c.k));
-    case 'ON_EDGE': return un(c.a, (x) => edge(x));
-    case 'NOT_EDGE': return un(c.a, (x) => !edge(x));
-    case 'SAME_ROOM': return bin(c.a, c.b, (x, y) => R(x) === R(y));
-    case 'DIFF_ROOM': return bin(c.a, c.b, (x, y) => R(x) !== R(y));
-    case 'ADJ4': return bin(c.a, c.b, (x, y) => R(x) === R(y) && dR(x, y) + dC(x, y) === 1);
-    case 'DIAG': return bin(c.a, c.b, (x, y) => R(x) === R(y) && dR(x, y) === 1 && dC(x, y) === 1);
-    case 'NOT_NEAR': return bin(c.a, c.b, (x, y) => !(R(x) === R(y) && Math.max(dR(x, y), dC(x, y)) === 1));
-    case 'ABOVE': return bin(c.a, c.b, (x, y) => row(x) < row(y));
-    case 'LEFT': return bin(c.a, c.b, (x, y) => col(x) < col(y));
-    case 'CRIME_WEAPON': return un(ctx.victim, (x) => weaponOfRoom[R(x)] === c.w);
-    case 'CRIME_NOT_WEAPON': return un(ctx.victim, (x) => weaponOfRoom[R(x)] !== c.w);
-    case 'CRIME_CAT': return un(ctx.victim, (x) => ctx.weaponCat(weaponOfRoom[R(x)]) === c.cat);
-    case 'CRIME_NOT_CAT': return un(ctx.victim, (x) => ctx.weaponCat(weaponOfRoom[R(x)]) !== c.cat);
-    case 'CRIME_ITEM': return un(ctx.victim, (x) => roomItems[R(x)].has(c.k));
-    case 'CRIME_NOT_ITEM': return un(ctx.victim, (x) => !roomItems[R(x)].has(c.k));
-    case 'ROOM_COUNT': {
-      const o = cnt((pos) => counts(pos)[c.r] === c.n, (m) => !(m.def[c.r] > c.n || m.poss[c.r] < c.n));
-      o.r = c.r; o.n = c.n; o.isCount = true; return o;
-    }
-    case 'ROOM_GT': return cnt((pos) => { const k = counts(pos); return k[c.r] > k[c.r2]; },
-      (m) => !(m.poss[c.r] <= m.def[c.r2]));
-    case 'ROOM_EQ': return cnt((pos) => { const k = counts(pos); return k[c.r] === k[c.r2]; },
-      (m) => !(m.poss[c.r] < m.def[c.r2] || m.poss[c.r2] < m.def[c.r]));
-    case 'ALONE': return cnt((pos) => counts(pos)[R(pos[c.a])] === 1, (m) => {
-      const mk = m.mask[c.a];
-      if (mk && (mk & (mk - 1)) === 0) { const r = 31 - Math.clz32(mk); return !(m.def[r] > 1); }
-      return true;
-    });
-    case 'NOT_ALONE': return cnt((pos) => counts(pos)[R(pos[c.a])] > 1, (m) => {
-      const mk = m.mask[c.a];
-      if (mk && (mk & (mk - 1)) === 0) { const r = 31 - Math.clz32(mk); return !(m.poss[r] < 2); }
-      return true;
-    });
+    case 'IN_ROOM': un(c.a, (x) => R(x) === c.r); break;
+    case 'NOT_IN_ROOM': un(c.a, (x) => R(x) !== c.r); break;
+    case 'ON': un(c.a, (x) => cellType[x] === c.k); break;
+    case 'NOT_ON': un(c.a, (x) => cellType[x] !== c.k); break;
+    case 'FLOOR': un(c.a, (x) => !cellType[x]); break;
+    case 'NOT_FLOOR': un(c.a, (x) => !!cellType[x]); break;
+    case 'BESIDE': un(c.a, (x) => beside[x].has(c.k)); break;
+    case 'NOT_BESIDE': un(c.a, (x) => !beside[x].has(c.k)); break;
+    case 'BESIDE_WIN': un(c.a, (x) => winAt[x] !== 0); break;
+    case 'NOT_BESIDE_WIN': un(c.a, (x) => winAt[x] === 0); break;
+    case 'BESIDE_DOOR': un(c.a, (x) => doorAt[x] !== 0); break;
+    case 'NOT_BESIDE_DOOR': un(c.a, (x) => doorAt[x] === 0); break;
+    case 'ROW_HAS': un(c.a, (x) => rowTypes[row(N, x)].has(c.k)); break;
+    case 'NOT_ROW_HAS': un(c.a, (x) => !rowTypes[row(N, x)].has(c.k)); break;
+    case 'COL_HAS': un(c.a, (x) => colTypes[col(N, x)].has(c.k)); break;
+    case 'NOT_COL_HAS': un(c.a, (x) => !colTypes[col(N, x)].has(c.k)); break;
+    case 'LINE': un(c.a, (x) => lineOf(N, x, c.side)); break;
+    case 'ON_EDGE': un(c.a, (x) => isEdge(N, x)); break;
+    case 'NOT_EDGE': un(c.a, (x) => !isEdge(N, x)); break;
+    case 'SAME_ROOM': bin(c.a, c.b, (x, y) => R(x) === R(y)); break;
+    case 'DIFF_ROOM': bin(c.a, c.b, (x, y) => R(x) !== R(y)); break;
+    case 'DIAG': bin(c.a, c.b, (x, y) => Math.abs(row(N, x) - row(N, y)) === 1 && Math.abs(col(N, x) - col(N, y)) === 1); break;
+    case 'NOT_DIAG': bin(c.a, c.b, (x, y) => !(Math.abs(row(N, x) - row(N, y)) === 1 && Math.abs(col(N, x) - col(N, y)) === 1)); break;
+    case 'NORTH': bin(c.a, c.b, (x, y) => row(N, x) < row(N, y)); break;
+    case 'WEST': bin(c.a, c.b, (x, y) => col(N, x) < col(N, y)); break;
+    case 'ROW_OFF': bin(c.a, c.b, (x, y) => row(N, y) - row(N, x) === c.k); break;
+    case 'COL_OFF': bin(c.a, c.b, (x, y) => col(N, y) - col(N, x) === c.k); break;
+    case 'ALONE_WITH':
+      bin(c.a, c.b, (x, y) => R(x) === R(y));
+      cnt((pos) => counts(pos)[R(pos[c.a])] === 2, (m) => {
+        const mk = m.mask[c.a];
+        if (mk && (mk & (mk - 1)) === 0) { const r = 31 - Math.clz32(mk); return m.def[r] <= 2 && m.poss[r] >= 2; }
+        return true;
+      });
+      break;
+    case 'ALONE':
+      cnt((pos) => counts(pos)[R(pos[c.a])] === 1, (m) => {
+        const mk = m.mask[c.a];
+        if (mk && (mk & (mk - 1)) === 0) return m.def[31 - Math.clz32(mk)] <= 1;
+        return true;
+      });
+      break;
+    case 'NOT_ALONE':
+      cnt((pos) => counts(pos)[R(pos[c.a])] > 1, (m) => {
+        const mk = m.mask[c.a];
+        if (mk && (mk & (mk - 1)) === 0) return m.poss[31 - Math.clz32(mk)] >= 2;
+        return true;
+      });
+      break;
+    case 'ROOM_COUNT':
+      cnt((pos) => counts(pos)[c.r] === c.n, (m) => !(m.def[c.r] > c.n || m.poss[c.r] < c.n), { isCount: true, r: c.r, n: c.n });
+      break;
+    case 'ROOM_GT':
+      cnt((pos) => { const k = counts(pos); return k[c.r] > k[c.r2]; }, (m) => !(m.poss[c.r] <= m.def[c.r2]));
+      break;
+    case 'ROOM_EQ':
+      cnt((pos) => { const k = counts(pos); return k[c.r] === k[c.r2]; }, (m) => !(m.poss[c.r] < m.def[c.r2] || m.poss[c.r2] < m.def[c.r]));
+      break;
+    case 'EMPTY_ROOMS':
+      cnt((pos) => counts(pos).filter((v) => v === 0).length === c.n, (m) => {
+        let lb = 0, ub = 0;
+        for (let r = 0; r < K; r++) { if (m.poss[r] === 0) lb++; if (m.def[r] === 0) ub++; }
+        return lb <= c.n && c.n <= ub;
+      });
+      break;
+    case 'NOBODY_ON':
+      for (let p = 0; p < N; p++) un(p, (x) => cellType[x] !== c.k);
+      break;
+    case 'ONLY_ON':
+      for (let p = 0; p < N; p++) un(p, p === c.a ? (x) => cellType[x] === c.k : (x) => cellType[x] !== c.k);
+      break;
+    case 'CRIME_HAS': un(victim, (x) => roomTypes[R(x)].has(c.k)); break;
+    case 'CRIME_NOT_HAS': un(victim, (x) => !roomTypes[R(x)].has(c.k)); break;
+    case 'CRIME_WIN': un(victim, (x) => roomWin[R(x)]); break;
+    case 'CRIME_NOWIN': un(victim, (x) => !roomWin[R(x)]); break;
     default: throw new Error('Tipo de pista desconocido: ' + c.t);
   }
+  return { def: c, parts, full: (pos) => parts.every((k) => k.full(pos)) };
 }
 
-function compileAll(defs, ctx) {
+function consFrom(clues) {
   const cons = { un: [], bin: [], cnt: [], all: [] };
-  for (const d of defs) {
-    const k = compileClue(d, ctx);
-    cons[k.kind].push(k);
-    cons.all.push(k);
-  }
+  for (const cl of clues) for (const k of cl.parts) { cons[k.kind].push(k); cons.all.push(k); }
   return cons;
 }
+function compileAll(defs, ctx) { return consFrom(defs.map((d) => compileClue(d, ctx))); }
 
 // ---------------------------------------------------------------- Solucionador
 function initState(ctx, cons) {
-  const { N, NN, roomOf, weaponOfRoom, victim } = ctx;
-  const dom = new Uint8Array(N * NN).fill(1);
+  const { N, NN, walk } = ctx;
+  const dom = new Uint8Array(N * NN);
   const pos = new Int16Array(N).fill(-1);
-  for (let x = 0; x < NN; x++) if (!weaponOfRoom[roomOf[x]]) dom[victim * NN + x] = 0;
+  for (let p = 0; p < N; p++) for (let x = 0; x < NN; x++) dom[p * NN + x] = walk[x] ? 1 : 0;
   for (const k of cons.un) {
     const b = k.a * NN;
     for (let x = 0; x < NN; x++) if (dom[b + x] && !k.f(x)) dom[b + x] = 0;
@@ -535,20 +767,19 @@ function propagate(ctx, cons, S, level) {
 }
 
 function finalCheck(ctx, cons, pos) {
-  const { N, K, roomOf, victim } = ctx;
+  const { N, K, roomOf, victim, walk } = ctx;
   const p = Array.from(pos);
   const rows = new Set(), cols = new Set();
-  for (const x of p) { rows.add((x / N) | 0); cols.add(x % N); }
+  for (const x of p) { if (!walk[x]) return false; rows.add((x / N) | 0); cols.add(x % N); }
   if (rows.size !== N || cols.size !== N) return false;
   const counts = new Array(K).fill(0);
   for (const x of p) counts[roomOf[x]]++;
-  const vr = roomOf[p[victim]];
-  if (counts[vr] !== 2 || !ctx.weaponOfRoom[vr]) return false;
+  if (counts[roomOf[p[victim]]] !== 2) return false;
   for (const k of cons.all) if (!k.full(p)) return false;
   return true;
 }
 
-// level 1: comprobación hacia delante · level 2: consistencia de arcos (rating)
+// level 1: comprobación hacia delante · level 2: consistencia de arcos (para medir dificultad)
 export function solve(ctx, cons, cap, level = 1, collect = false, maxNodes = 400000) {
   const { N, NN } = ctx;
   const res = { count: 0, sols: [], nodes: 0, guesses: 0, aborted: false };
@@ -587,8 +818,9 @@ export function solve(ctx, cons, cap, level = 1, collect = false, maxNodes = 400
   return res;
 }
 
+
 function sampleWorlds(rng, ctx, want, maxTrials) {
-  const { N, K, roomOf, weaponOfRoom, victim } = ctx;
+  const { N, K, roomOf, victim, walk } = ctx;
   const idx = [];
   for (let i = 0; i < N; i++) idx.push(i);
   const worlds = [];
@@ -597,54 +829,62 @@ function sampleWorlds(rng, ctx, want, maxTrials) {
     trials++;
     const cols = rng.shuffle(idx), rows = rng.shuffle(idx);
     const pos = new Array(N);
-    for (let p = 0; p < N; p++) pos[p] = rows[p] * N + cols[rows[p]];
+    let ok = true;
+    for (let p = 0; p < N; p++) { pos[p] = rows[p] * N + cols[rows[p]]; if (!walk[pos[p]]) { ok = false; break; } }
+    if (!ok) continue;
     const counts = new Array(K).fill(0);
     for (let p = 0; p < N; p++) counts[roomOf[pos[p]]]++;
-    const vr = roomOf[pos[victim]];
-    if (counts[vr] === 2 && weaponOfRoom[vr]) worlds.push(pos);
+    if (counts[roomOf[pos[victim]]] === 2) worlds.push(pos);
   }
   return { worlds, rate: Math.max(worlds.length, 1) / Math.max(trials, 1) };
 }
 
 // ------------------------------------------------------- Selección de pistas
-function pickClues(rng, scene, ctx, content, D) {
-  const pool0 = trueClues(scene, ctx, content, rng);
+function pickClues(rng, scene, ctx, D) {
+  const pool0 = trueClues(scene, ctx, rng);
   const pool = [], comp = [];
   for (const d of pool0) {
     const k = compileClue(d, ctx);
-    if (k.kind === 'un') {           // descarta pistas que clavan a alguien en 1-2 casillas
+    if (k.parts.length === 1 && k.parts[0].kind === 'un') {   // descarta pistas que clavan a alguien en 1-2 casillas
       let sup = 0;
-      for (let x = 0; x < ctx.NN; x++) if (k.f(x)) sup++;
+      for (let x = 0; x < ctx.NN; x++) if (ctx.walk[x] && k.parts[0].f(x)) sup++;
       if (sup < D.minSupport) continue;
+      // y las que no dicen nada (cierto en todas las casillas)
+      let all = 0;
+      for (let x = 0; x < ctx.NN; x++) if (ctx.walk[x]) all++;
+      if (sup === all) continue;
     }
     pool.push(d); comp.push(k);
   }
   const wOf = (d) => (D.weights[d.t] === undefined ? 1 : D.weights[d.t]);
   const N = ctx.N;
   const usedType = {};
-  const chosen = [];     // índices de pool
+  const chosen = [];
   const used = new Set();
-  const take = (j) => { chosen.push(j); used.add(j); usedType[pool[j].t] = (usedType[pool[j].t] || 0) + 1; };
-  const consOf = (idxs) => compileAllFromComp(idxs.map((j) => comp[j]));
+  const take = (j) => { chosen.push(j); used.add(j); const f = famOf(pool[j].t); usedType[f] = (usedType[f] || 0) + 1; if (pool[j].a !== undefined) mentioned.add(pool[j].a); if (pool[j].b !== undefined) mentioned.add(pool[j].b); };
+  const rep = (j) => usedType[famOf(pool[j].t)] || 0;
+  const mentioned = new Set();
+  const fresh = (j) => { const d = pool[j]; return (d.a !== undefined && !mentioned.has(d.a)) || (d.b !== undefined && !mentioned.has(d.b)) ? 1.6 : 1; };
+  const consOf = (idxs) => consFrom(idxs.map((j) => comp[j]));
 
-  // fase 1: pistas "informativas" elegidas con una estimación a priori de cuánto recortan,
-  // hasta que las soluciones sean pocas y se puedan enumerar con exactitud.
+  // fase 1: pistas "informativas" según una estimación a priori, hasta que las
+  // soluciones sean pocas y se puedan enumerar con exactitud.
   const CAP = 600;
-  const { worlds, rate } = sampleWorlds(rng, ctx, 1200, 40000);
+  const { worlds, rate } = sampleWorlds(rng, ctx, 1200, 60000);
   let fact = 1;
   for (let i = 2; i <= N; i++) fact *= i;
   let est = fact * fact * rate;
   const pr = comp.map((k) => {
     let c = 0;
     for (let w = 0; w < worlds.length; w++) if (k.full(worlds[w])) c++;
-    return Math.max(c, 0.5) / worlds.length;
+    return Math.max(c, 0.5) / Math.max(worlds.length, 1);
   });
   const pickInformative = () => {
     const cands = [];
     for (let j = 0; j < pool.length; j++) if (!used.has(j)) cands.push(j);
     const j = weightedPick(rng, cands, (jj) => {
-      const inf = 0.05 + (1 - pr[jj]);
-      return wOf(pool[jj]) * inf * inf / (1 + 0.6 * (usedType[pool[jj].t] || 0));
+      const inf = 0.08 + (1 - pr[jj]);
+      return wOf(pool[jj]) * fresh(jj) * inf / (1 + 1.1 * rep(jj));
     });
     if (j === null) return false;
     take(j);
@@ -671,7 +911,7 @@ function pickClues(rng, scene, ctx, content, D) {
       if (keep < sols.length) cands.push({ j, frac: (sols.length - keep) / sols.length });
     }
     if (!cands.length) return null;
-    const c = weightedPick(rng, cands, (o) => wOf(pool[o.j]) * (0.04 + o.frac * o.frac) / (1 + 0.5 * (usedType[pool[o.j].t] || 0)));
+    const c = weightedPick(rng, cands, (o) => wOf(pool[o.j]) * fresh(o.j) * (0.06 + o.frac) / (1 + 1.1 * rep(o.j)));
     take(c.j);
     sols = sols.filter((s) => comp[c.j].full(s));
   }
@@ -688,50 +928,42 @@ function pickClues(rng, scene, ctx, content, D) {
     }
     return true;
   };
-  // Para los niveles con tope de adivinanzas puede hacer falta añadir pistas.
   if (D.maxGuesses < 1e8 && !acceptable(chosen)) {
     let extra = 40;
     while (extra-- > 0 && !acceptable(chosen)) {
       const cands = [];
       for (let j = 0; j < pool.length; j++) if (!used.has(j)) cands.push(j);
-      const j = weightedPick(rng, cands, (jj) => wOf(pool[jj]) / (1 + 0.6 * (usedType[pool[jj].t] || 0)));
+      const j = weightedPick(rng, cands, (jj) => wOf(pool[jj]) / (1 + 1.1 * rep(jj)));
       if (j === null) break;
       take(j);
     }
     if (!acceptable(chosen)) return null;
   }
-  let order = rng.shuffle(chosen.slice());
   let current = chosen.slice();
-  for (const j of order) {
+  for (const j of rng.shuffle(chosen.slice())) {
     const without = current.filter((x) => x !== j);
     if (without.length < 2) continue;
     if (acceptable(without)) current = without;
   }
-  return { defs: current.map((j) => pool[j]), pool };
-}
-
-function compileAllFromComp(list) {
-  const cons = { un: [], bin: [], cnt: [], all: [] };
-  for (const k of list) { cons[k.kind].push(k); cons.all.push(k); }
-  return cons;
+  return { defs: current.map((j) => pool[j]) };
 }
 
 // ------------------------------------------------------------ Puzzle completo
 export function generatePuzzle(content, diffKey, seedStr, opts = {}) {
   const D = DIFFICULTIES[diffKey];
-  const rng = makeRng(hashStr(seedStr + '|' + diffKey));
+  const rng = makeRng(hashStr(seedStr + '|' + diffKey + '|v2'));
   let best = null;
   const t0 = Date.now();
   for (let attempt = 0; attempt < D.attempts; attempt++) {
     const scene = buildScene(rng, content, D);
     if (!scene) continue;
     const ctx = makeCtx(scene, content);
-    const picked = pickClues(rng, scene, ctx, content, D);
+    const picked = pickClues(rng, scene, ctx, D);
     if (!picked) continue;
     const cons = compileAll(picked.defs, ctx);
     const rate = solve(ctx, cons, 2, 2, false, 300);
     const rating = { guesses: rate.aborted ? 999 : rate.guesses, nodes: rate.nodes, clues: picked.defs.length };
-    const puzzle = assemble(scene, ctx, picked.defs, rating, content, diffKey, seedStr, rng);
+    const puzzle = assemble(scene, picked.defs, rating, content, diffKey, seedStr, rng);
     const ok = (D.minGuesses === undefined || rating.guesses >= D.minGuesses);
     if (!best || (ok && !best.ok)) best = { puzzle, ok };
     if (ok) break;
@@ -746,30 +978,30 @@ function clueSortKey(c) {
   const ps = [];
   if (c.a !== undefined) ps.push(c.a);
   if (c.b !== undefined) ps.push(c.b);
-  return ps.length ? Math.min(...ps) : -1;
+  return ps.length ? Math.min(...ps) : 99;
 }
 
-function assemble(scene, ctx, defs, rating, content, diffKey, seedStr, rng) {
+function assemble(scene, defs, rating, content, diffKey, seedStr, rng) {
   const clues = defs.slice().sort((x, y) => clueSortKey(x) - clueSortKey(y));
-  const mansion = rng.pick(content.GAME.mansions);
   return {
-    v: 1, id: diffKey + ':' + seedStr, diff: diffKey, seed: seedStr,
-    N: scene.N, K: scene.K, mansion,
+    v: 2, id: diffKey + ':' + seedStr, diff: diffKey, seed: seedStr,
+    N: scene.N, K: scene.K, mansion: rng.pick(content.GAME.mansions),
     roomOf: scene.roomOf, roomTypes: scene.typeIds,
-    itemAt: scene.itemAt, decorAt: scene.decorAt, weaponOfRoom: scene.weaponOfRoom,
-    persons: scene.persons, victim: scene.victim, murderer: scene.murderer,
-    crimeRoom: scene.crimeRoom, weapon: scene.weaponOfRoom[scene.crimeRoom],
+    objs: scene.objs, cellObj: scene.cellObj, walk: scene.walk, winAt: scene.winAt, doorAt: scene.doorAt,
+    persons: scene.persons, victim: scene.victim, murderer: scene.murderer, crimeRoom: scene.crimeRoom,
     solution: scene.solution, clues, rating,
   };
 }
 
-// Reconstruye lo necesario para validar un puzzle ya generado (tests / pistas).
-export function verifyPuzzle(content, puz, cap = 2) {
-  const scene = {
-    N: puz.N, K: puz.K, roomOf: puz.roomOf, itemAt: puz.itemAt, weaponOfRoom: puz.weaponOfRoom,
-    victim: puz.victim,
+// Reconstruye lo necesario para validar un puzzle ya generado (tests).
+export function sceneOf(puz) {
+  return {
+    N: puz.N, K: puz.K, roomOf: puz.roomOf, cellObj: puz.cellObj, objs: puz.objs, walk: puz.walk,
+    winAt: puz.winAt, doorAt: puz.doorAt, victim: puz.victim,
   };
-  const ctx = makeCtx(scene, content);
+}
+export function verifyPuzzle(content, puz, cap = 2) {
+  const ctx = makeCtx(sceneOf(puz), content);
   const cons = compileAll(puz.clues, ctx);
   const r = solve(ctx, cons, cap, 1, true, 2e6);
   return { count: r.count, sols: r.sols, aborted: r.aborted, ctx, cons };
