@@ -363,3 +363,6 @@ img { -webkit-user-drag: none; }
 .taburete-sw { width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle, #c98f52 0 45%, #7a4f2a 46% 60%, #c98f52 61%); box-shadow: 0 0 0 1px #5e3a1c; }
 .obj .sw.taburete-sw { width: calc(var(--cell) * .42); height: calc(var(--cell) * .42); }
 .gal .box .taburete-sw { width: 30px; height: 30px; }
+.clue.rule { background: #3a2a33; color: #f3dfe4; box-shadow: 0 2px 0 #241a20, 0 4px 10px rgba(0,0,0,.25); }
+.clue.rule::before { background: var(--blood); }
+.clue.rule .rule-ico { border: 0; color: inherit; font-size: 18px; }

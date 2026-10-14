@@ -310,18 +310,18 @@ function placeOpenings(rng, N, roomOf, typeIds, K, cellObj, objs, content) {
   }
   // ventanas en los muros exteriores
   for (let r = 0; r < K; r++) {
-    if (typeIds[r] === 'jardin') continue;
+    if (content.roomTypeMap[typeIds[r]].outdoor) continue;
     const outer = [];
     for (let x = 0; x < NN; x++) {
       if (roomOf[x] !== r) continue;
       for (const d of DIRS) if (neighbor(N, x, d) < 0) outer.push([x, d]);
     }
     if (!outer.length) continue;
-    const n = typeIds[r] === 'invernadero' ? rng.range(2, 3) : rng.range(0, 2);
+    const n = rng.range(0, 2);
     for (const [x, d] of rng.shuffle(outer).slice(0, n)) winAt[x] |= d.bit;
   }
   // puerta principal en el exterior (en el vestíbulo si lo hay)
-  let main = typeIds.indexOf('vestibulo');
+  let main = typeIds.indexOf('recepcion');
   if (main < 0) main = rng.int(K);
   const outerMain = [];
   for (let x = 0; x < NN; x++) {
@@ -360,32 +360,37 @@ function buildScene(rng, content, D) {
   const typeIds = rng.shuffle(content.ROOM_TYPES.map((t) => t.id)).slice(0, K);
   const { cellObj, objs, walk } = furnish(rng, content, D, N, roomOf, typeIds, K);
   const { winAt, doorAt } = placeOpenings(rng, N, roomOf, typeIds, K, cellObj, objs, content);
-  // personajes con letras distintas
+  // personajes: la víctima fija (GAME.victim) y N-1 sospechosos con letras distintas
+  const victimId = content.GAME.victim && content.charMap[content.GAME.victim] ? content.GAME.victim : null;
   const persons = [];
   const seenMark = new Set();
+  if (victimId) { persons.push(victimId); seenMark.add(content.charMap[victimId].mark); }
   for (const c of rng.shuffle(content.CHARACTERS)) {
     if (persons.length >= N) break;
-    if (seenMark.has(c.mark)) continue;
+    if (c.id === victimId || seenMark.has(c.mark)) continue;
     seenMark.add(c.mark); persons.push(c.id);
   }
   if (persons.length < N) for (const c of content.CHARACTERS) if (persons.length < N && !persons.includes(c.id)) persons.push(c.id);
+  const victim = 0;
 
   for (let attempt = 0; attempt < 400; attempt++) {
     const cols = randomPlacement(rng, N, walk);
     if (!cols) return null;
+    const cellsSol = [];
+    for (let r = 0; r < N; r++) cellsSol.push(r * N + cols[r]);
     const counts = new Array(K).fill(0);
-    for (let r = 0; r < N; r++) counts[roomOf[r * N + cols[r]]]++;
+    for (const x of cellsSol) counts[roomOf[x]]++;
     const rooms2 = [];
     for (let r = 0; r < K; r++) if (counts[r] === 2) rooms2.push(r);
     if (!rooms2.length) continue;
     const crimeRoom = rng.pick(rooms2);
-    const rowsOrder = rng.shuffle([...Array(N).keys()]);
+    const pair = rng.shuffle(cellsSol.filter((x) => roomOf[x] === crimeRoom));
+    const rest = rng.shuffle(cellsSol.filter((x) => roomOf[x] !== crimeRoom));
+    const murderer = 1 + rng.int(N - 1);
     const solution = new Array(N);
-    for (let p = 0; p < N; p++) { const r = rowsOrder[p]; solution[p] = r * N + cols[r]; }
-    const inRoom = [];
-    for (let p = 0; p < N; p++) if (roomOf[solution[p]] === crimeRoom) inRoom.push(p);
-    const victim = rng.pick(inRoom);
-    const murderer = inRoom[0] === victim ? inRoom[1] : inRoom[0];
+    solution[victim] = pair[0];
+    solution[murderer] = pair[1];
+    for (let p = 1; p < N; p++) if (p !== murderer) solution[p] = rest.pop();
     return { N, K, roomOf, typeIds, cellObj, objs, walk, winAt, doorAt, persons, solution, victim, murderer, crimeRoom };
   }
   return null;
@@ -464,7 +469,8 @@ function trueClues(scene, ctx, rng) {
     for (let q = p + 1; q < N; q++) {
       const x = pos[p], y = pos[q];
       const same = roomOf[x] === roomOf[y];
-      add({ t: same ? 'SAME_ROOM' : 'DIFF_ROOM', a: p, b: q });
+      // "la víctima estaba en la misma habitación que X" delataría al asesino: no se usa
+      if (!(same && (p === scene.victim || q === scene.victim))) add({ t: same ? 'SAME_ROOM' : 'DIFF_ROOM', a: p, b: q });
       if (same && roomCount[roomOf[x]] === 2 && p !== scene.victim && q !== scene.victim) add({ t: 'ALONE_WITH', a: p, b: q });
       const dr = Math.abs(row(N, x) - row(N, y)), dc = Math.abs(col(N, x) - col(N, y));
       add({ t: dr === 1 && dc === 1 ? 'DIAG' : 'NOT_DIAG', a: p, b: q });
@@ -856,7 +862,21 @@ function pickClues(rng, scene, ctx, D) {
     }
     pool.push(d); comp.push(k);
   }
-  const wOf = (d) => (D.weights[d.t] === undefined ? 1 : D.weights[d.t]);
+  const V = ctx.victim;
+  const wOf = (d) => {
+    const w = D.weights[d.t] === undefined ? 1 : D.weights[d.t];
+    if (d.a === V && d.b === undefined) return w * 0.25;           // pista "propia" de la víctima: rara
+    if (d.a === V || d.b === V) return w * 0.7;
+    return w;
+  };
+  // cada sospechoso debe aparecer en alguna pista (la víctima no hace falta)
+  const mentions = (d) => { const m = []; if (d.a !== undefined) m.push(d.a); if (d.b !== undefined) m.push(d.b); return m; };
+  const covered = (idxs) => {
+    const seen = new Set();
+    for (const j of idxs) for (const p of mentions(pool[j])) seen.add(p);
+    for (let p = 0; p < ctx.N; p++) if (p !== V && !seen.has(p)) return false;
+    return true;
+  };
   const N = ctx.N;
   const usedType = {};
   const chosen = [];
@@ -917,8 +937,19 @@ function pickClues(rng, scene, ctx, D) {
   }
   if (sols.length !== 1) return null;
 
+  // completar: una pista para cada sospechoso que aún no aparezca
+  for (let p = 0; p < N; p++) {
+    if (p === V || mentioned.has(p)) continue;
+    const cands = [];
+    for (let j = 0; j < pool.length; j++) if (!used.has(j) && mentions(pool[j]).includes(p)) cands.push(j);
+    const j = weightedPick(rng, cands, (jj) => wOf(pool[jj]) * (1 - pr[jj] + 0.1) / (1 + 1.1 * rep(jj)));
+    if (j === null) return null;
+    take(j);
+  }
+
   // fase 3: dejar solo las pistas imprescindibles
   const acceptable = (idxs) => {
+    if (!covered(idxs)) return false;
     const cons = consOf(idxs);
     const u = solve(ctx, cons, 2, 1, false, 12000);
     if (u.aborted || u.count !== 1) return false;
@@ -974,18 +1005,18 @@ export function generatePuzzle(content, diffKey, seedStr, opts = {}) {
   return best.puzzle;
 }
 
-function clueSortKey(c) {
+function clueSortKey(c, victim) {
   const ps = [];
-  if (c.a !== undefined) ps.push(c.a);
-  if (c.b !== undefined) ps.push(c.b);
+  if (c.a !== undefined && c.a !== victim) ps.push(c.a);
+  if (c.b !== undefined && c.b !== victim) ps.push(c.b);
   return ps.length ? Math.min(...ps) : 99;
 }
 
 function assemble(scene, defs, rating, content, diffKey, seedStr, rng) {
-  const clues = defs.slice().sort((x, y) => clueSortKey(x) - clueSortKey(y));
+  const clues = defs.slice().sort((x, y) => clueSortKey(x, scene.victim) - clueSortKey(y, scene.victim));
   return {
     v: 2, id: diffKey + ':' + seedStr, diff: diffKey, seed: seedStr,
-    N: scene.N, K: scene.K, mansion: rng.pick(content.GAME.mansions),
+    N: scene.N, K: scene.K, venue: rng.pick(content.GAME.venues),
     roomOf: scene.roomOf, roomTypes: scene.typeIds,
     objs: scene.objs, cellObj: scene.cellObj, walk: scene.walk, winAt: scene.winAt, doorAt: scene.doorAt,
     persons: scene.persons, victim: scene.victim, murderer: scene.murderer, crimeRoom: scene.crimeRoom,

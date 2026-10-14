@@ -121,14 +121,14 @@ export function clueTokens(c, puz, content) {
         [T('Encontraron a '), P(c.a), T(' ' + LINE_TXT[c.side] + '.')]]);
     case 'ON_EDGE':
       return pick([
-        [P(c.a), T(' estaba pegad' + o(c.a) + ' a un muro exterior de la casa.')],
+        [P(c.a), T(' estaba pegad' + o(c.a) + ' a un muro exterior.')],
         [P(c.a), T(' estaba en el borde del plano.')],
         [P(c.a), T(' estaba junto a un muro exterior.')]]);
     case 'NOT_EDGE':
       return pick([
         [P(c.a), T(' no estaba junto a ningún muro exterior.')],
         [P(c.a), T(' no estaba en el borde del plano.')],
-        [P(c.a), T(' estaba en el interior de la casa, lejos de los muros exteriores.')]]);
+        [P(c.a), T(' estaba en el interior, lejos de los muros exteriores.')]]);
     case 'ALONE':
       return pick([
         [P(c.a), T(' estaba sol' + o(c.a) + ' en su habitación.')],

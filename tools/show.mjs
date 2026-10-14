@@ -8,7 +8,7 @@ const seed = process.argv[3] || 'demo';
 const puz = generatePuzzle(CONTENT, diff, seed);
 const N = puz.N;
 const name = (p) => CONTENT.charMap[puz.persons[p]].name;
-console.log(`# ${puz.id}  ${N}x${N}  mansión ${puz.mansion}  (${puz.rating.ms}ms, ${puz.rating.clues} pistas, adivinanzas ${puz.rating.guesses})`);
+console.log(`# ${puz.id}  ${N}x${N}  finca ${puz.venue}  (${puz.rating.ms}ms, ${puz.rating.clues} pistas, adivinanzas ${puz.rating.guesses})`);
 console.log('Salas:', puz.roomTypes.map((t, i) => `${i}=${t}`).join(' '));
 for (let r = 0; r < N; r++) {
   let line = '';

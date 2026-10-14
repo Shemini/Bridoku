@@ -1,6 +1,6 @@
-# Murdoku · juego web para móvil
+# Bridoku · juego web para móvil
 
-Rompecabezas de lógica, al estilo de los libros de Murdoku de Manuel Garand: hay que colocar a todos los personajes en el plano de una mansión y descubrir **quién estuvo a solas con la víctima**. Los casos se **generan automáticamente** (todos con solución única garantizada) y hay un **caso del día** igual para todos.
+Rompecabezas de lógica con temática de boda, al estilo de los libros de Murdoku de Manuel Garand. En plena boda, **Sabas, el novio, aparece muerto**: hay que colocar a todos los invitados en el plano de la finca y descubrir **quién estuvo a solas con él**. Los casos se **generan automáticamente** (todos con solución única garantizada) y hay un **caso del día** igual para todos.
 
 Está hecho como web app (PWA): se puede jugar desde el navegador o instalarla en la pantalla de inicio para que se vea **a pantalla completa, como una aplicación**, y funciona **sin conexión**.
 
@@ -11,7 +11,7 @@ Está hecho como web app (PWA): se puede jugar desde el navegador o instalarla e
 Los archivos usan módulos de JavaScript, así que **no se puede abrir con doble clic** en `index.html`; necesita un servidor web (cualquiera vale). La forma más rápida, con Python:
 
 ```
-cd murdoku
+cd bridoku
 python3 -m http.server 8000
 ```
 
@@ -20,12 +20,12 @@ y abre `http://localhost:8000`. (Para probarlo con el móvil en la misma wifi: `
 ## 2. Publicarlo (Netlify)
 
 1. Entra en <https://app.netlify.com/drop>.
-2. Arrastra **la carpeta `murdoku` entera**.
+2. Arrastra **la carpeta del juego entera**.
 3. Listo: te da una dirección `https://algo.netlify.app`.
 
 También sirve subirlo a un repositorio de GitHub y conectarlo a Netlify, igual que con GROOM. No hay nada que compilar.
 
-> Si cambias archivos de código y quieres forzar que todos los móviles lo recarguen, cambia el nombre de la caché en `sw.js` (`murdoku-v2` → `murdoku-v3`).
+> Si cambias archivos de código y quieres forzar que todos los móviles lo recarguen, cambia el nombre de la caché en `sw.js` (`bridoku-v1` → `bridoku-v2`).
 
 ## 3. Que se vea como una app a pantalla completa
 
@@ -60,7 +60,8 @@ Pixel art pequeño (16×16, 32×32) se amplía sin suavizar, así que se ve nít
 
 Todo vive en `content.js`:
 
-- **Personaje:** `{ id: 'nuria', name: 'Nuria', mark: 'N', g: 'f', role: 'La periodista', color: '#7a4fb0' }`. `mark` es la letra que sale en las marcas a lápiz: conviene que no se repita (el generador evita juntar dos personajes con la misma letra). `g` sirve para concordar «sentado/sentada».
+- **Víctima:** `GAME.victim` (ahora `'sabas'`). Siempre aparece y siempre es la víctima.
+- **Personaje:** `{ id: 'olga', name: 'Olga', mark: 'O', g: 'f', role: 'La cuñada', color: '#7a4fb0' }`. `mark` es la letra que sale en las marcas a lápiz: conviene que no se repita (el generador evita juntar dos personajes con la misma letra). `g` sirve para concordar «sentado/sentada».
 - **Mueble:** `walk: true` si se puede estar encima (sentado, tumbado…) y `false` si es obstáculo. `shape`: `'one'`, `'pair'` o `'area'` (con `size: [mín, máx]` casillas). `around: ['mesa']` hace que se coloque pegado a una mesa (así salen las sillas alrededor). `wall: true` lo arrima a una pared.
 - **Habitación:** su lista `furnish` dice qué muebles lleva, cuántos (`n: [mín, máx]`) y con qué probabilidad (`p`).
 
@@ -74,7 +75,8 @@ Todo vive en `content.js`:
 - **Nadie puede estar en una casilla con obstáculo** (mesas, plantas, pianos, armarios…). Sí sobre sillas, sillones, sofás, camas, bancos, taburetes o alfombras.
 - **Puertas y ventanas están en los muros**, no ocupan casilla. «Junto a una ventana» = la casilla toca ese muro.
 - **«Al lado de»** = casilla contigua (no en diagonal) **dentro de la misma habitación**.
-- La víctima estaba **a solas con el asesino**: en su habitación solo había otra persona. No hay armas.
+- La víctima (siempre Sabas) estaba **a solas con el asesino**: en su habitación solo había otra persona. No hay armas.
+- **Todos los sospechosos tienen al menos una pista** que los menciona. La víctima no necesita pista propia: su «pista» es que estaba a solas con el asesino (aparece fija al principio de la lista). Nunca se da una pista que diga directamente con quién estaba Sabas en su habitación.
 
 **Tipos de pista** (40, cada una con varias redacciones):
 
@@ -88,10 +90,10 @@ Todo vive en `content.js`:
 
 **Generador** (`engine.js`):
 
-1. Divide el plano en habitaciones y las amuebla según su tipo: camas de 2 casillas, mesas con sillas alrededor, alfombras continuas, muebles grandes contra las paredes…
+1. Divide el plano en estancias de la finca (suite nupcial, vestidor de la novia, capilla, salón de banquetes, pista de baile, barra libre, photocall, jardín, terraza, cocina del catering, recepción, aseo, bodega) y las amuebla: cama de 2 casillas, mesa del banquete con sillas alrededor, tarta, arco floral, cabina del DJ, alfombras continuas…
 2. Pone puertas entre habitaciones (todas quedan comunicadas) y ventanas en los muros exteriores.
 3. Elige una solución válida y genera todas las pistas verdaderas posibles.
-4. Selecciona pistas hasta que un solucionador comprueba que hay **una única solución**, y luego quita todas las que sobran. Los Fáciles, además, se resuelven sin tener que probar suerte.
+4. Selecciona pistas hasta que un solucionador comprueba que hay **una única solución**, se asegura de que cada sospechoso tenga al menos una, y luego quita todas las que sobran. Los Fáciles, además, se resuelven sin tener que probar suerte.
 
 Es determinista: la misma semilla da el mismo caso en cualquier móvil (así el **caso del día** es igual para todos sin servidor).
 
@@ -134,4 +136,4 @@ sprites/                            tus PNG
 tools/                              pruebas
 ```
 
-El nombre del juego se cambia en `content.js` (`GAME.title`) y en `manifest.webmanifest` / `index.html`. «Murdoku» es también el nombre con el que se conoce este tipo de puzle y existen otras apps con ese nombre; si algún día lo publicas más allá de uso personal, quizá te convenga uno propio.
+El nombre del juego se cambia en `content.js` (`GAME.title`) y en `manifest.webmanifest` / `index.html`.

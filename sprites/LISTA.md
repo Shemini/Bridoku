@@ -1,92 +1,97 @@
-# Lista de sprites
+# Lista de sprites (Bridoku)
 
 Generada a partir de `content.js`. Dentro del juego, **Ajustes → Galería de sprites** muestra cuáles ya están puestos.
 
-Todos en PNG. Fondo transparente salvo los suelos.
+Todos en PNG. Fondo transparente salvo los suelos. Tamaño base recomendado: 32×32 por casilla.
 
 ## Personajes — `sprites/characters/`
 
-De pie, centrados, cuadrados (p. ej. 64×64). Opcional: `<id>_dead.png` para cuando ese personaje es la víctima.
+Busto o cabeza, cuadrados (32×32). `sabas_dead.png` (opcional) es Sabas como víctima.
 
-| Archivo | Personaje | Letra en el lápiz |
-|---|---|---|
-| `alfredo.png` | Alfredo — El mayordomo | A |
-| `beatriz.png` | Beatriz — La condesa | B |
-| `candido.png` | Cándido — El cocinero | C |
-| `dolores.png` | Dolores — La doncella | D |
-| `eusebio.png` | Eusebio — El párroco | E |
-| `fernanda.png` | Fernanda — La viuda | F |
-| `gregorio.png` | Gregorio — El jardinero | G |
-| `herminia.png` | Herminia — La doctora | H |
-| `ismael.png` | Ismael — El coronel | I |
-| `julia.png` | Julia — La actriz | J |
-| `leandro.png` | Leandro — El marqués | L |
-| `mercedes.png` | Mercedes — El ama de llaves | M |
+| Archivo | Personaje | Letra en el lápiz | Color |
+|---|---|---|---|
+| `sabas.png` | Sabas — El novio | S | `#2d2b38` |
+| `amparo.png` | Amparo — La suegra | A | `#9b59b6` |
+| `bernardo.png` | Bernardo — El padrino | B | `#4f6d9a` |
+| `carmela.png` | Carmela — La madrina | C | `#c2417a` |
+| `dani.png` | Dani — El DJ | D | `#2aa7a0` |
+| `encarna.png` | Encarna — La wedding planner | E | `#d9822b` |
+| `fermin.png` | Fermín — El cura | F | `#7a5a3f` |
+| `gloria.png` | Gloria — La florista | G | `#4f9d5d` |
+| `hugo.png` | Hugo — El fotógrafo | H | `#5b5f6e` |
+| `ines.png` | Inés — La dama de honor | I | `#e05c8a` |
+| `javi.png` | Javi — El ex de la novia | J | `#b83b3b` |
+| `lucia.png` | Lucía — La prima soltera | L | `#8a6fd1` |
+| `manolo.png` | Manolo — El tío de la barra libre | M | `#b8931f` |
+| `nacho.png` | Nacho — El camarero | N | `#3e7cb1` |
+| `rocio.png` | Rocío — La chef del catering | R | `#5d6b2f` |
 
 ## Muebles — `sprites/items/`
-
-Vistos desde arriba, como en un plano. Los personajes se dibujan encima de los muebles que se pueden pisar.
 
 | Archivo | Qué es | Forma | ¿Se puede pisar? |
 |---|---|---|---|
 | `silla.png` | una silla | 1 casilla · cuadrado | sí |
 | `sillon.png` | un sillón | 1 casilla · cuadrado | sí |
-| `sofa.png` | un sofá | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | sí |
-| `cama.png` | una cama | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | sí |
+| `sofa.png` | un sofá | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | sí |
+| `cama.png` | una cama | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | sí |
 | `alfombra.png` | una alfombra | bloque de 2–6 casillas · sprite = baldosa cuadrada que se repite | sí |
-| `banco.png` | un banco | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | sí |
+| `banco.png` | un banco | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | sí |
 | `taburete.png` | un taburete | 1 casilla · cuadrado | sí |
+| `tumbona.png` | una tumbona | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | sí |
 | `inodoro.png` | un inodoro | 1 casilla · cuadrado | sí |
 | `mesa.png` | una mesa | bloque de 1–4 casillas · sprite = baldosa cuadrada que se repite | no (obstáculo) |
-| `mesa_larga.png` | una mesa de banquete | bloque de 2–6 casillas · sprite = baldosa cuadrada que se repite | no (obstáculo) |
-| `escritorio.png` | un escritorio | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
+| `mesa_larga.png` | una mesa del banquete | bloque de 2–6 casillas · sprite = baldosa cuadrada que se repite | no (obstáculo) |
+| `mesa_regalos.png` | una mesa de regalos | bloque de 2–3 casillas · sprite = baldosa cuadrada que se repite | no (obstáculo) |
+| `mesa_alta.png` | una mesa alta | 1 casilla · cuadrado | no (obstáculo) |
+| `tarta.png` | una tarta nupcial | 1 casilla · cuadrado | no (obstáculo) |
 | `planta.png` | una planta | 1 casilla · cuadrado | no (obstáculo) |
-| `piano.png` | un piano | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
+| `arco.png` | un arco floral | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
+| `altar.png` | un altar | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
+| `piano.png` | un piano | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
 | `chimenea.png` | una chimenea | 1 casilla · cuadrado | no (obstáculo) |
-| `tele.png` | un televisor | 1 casilla · cuadrado | no (obstáculo) |
-| `estanteria.png` | una estantería | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
 | `armario.png` | un armario | 1 casilla · cuadrado | no (obstáculo) |
 | `mesilla.png` | una mesilla | 1 casilla · cuadrado | no (obstáculo) |
 | `tocador.png` | un tocador | 1 casilla · cuadrado | no (obstáculo) |
+| `espejo.png` | un espejo de pie | 1 casilla · cuadrado | no (obstáculo) |
+| `maniqui.png` | un maniquí con el vestido | 1 casilla · cuadrado | no (obstáculo) |
+| `perchero.png` | un perchero | 1 casilla · cuadrado | no (obstáculo) |
+| `cubitera.png` | una cubitera de champán | 1 casilla · cuadrado | no (obstáculo) |
 | `nevera.png` | una nevera | 1 casilla · cuadrado | no (obstáculo) |
 | `horno.png` | un horno | 1 casilla · cuadrado | no (obstáculo) |
 | `fregadero.png` | un fregadero | 1 casilla · cuadrado | no (obstáculo) |
-| `banera.png` | una bañera | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
 | `lavabo.png` | un lavabo | 1 casilla · cuadrado | no (obstáculo) |
-| `globo.png` | un globo terráqueo | 1 casilla · cuadrado | no (obstáculo) |
-| `aparador.png` | un aparador | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
-| `caja_fuerte.png` | una caja fuerte | 1 casilla · cuadrado | no (obstáculo) |
-| `archivador.png` | un archivador | 1 casilla · cuadrado | no (obstáculo) |
+| `cabina_dj.png` | una cabina del DJ | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
+| `altavoz.png` | un altavoz | 1 casilla · cuadrado | no (obstáculo) |
+| `photocall.png` | un photocall | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
+| `baul.png` | un baúl de disfraces | 1 casilla · cuadrado | no (obstáculo) |
+| `libro_firmas.png` | un libro de firmas | 1 casilla · cuadrado | no (obstáculo) |
 | `fuente.png` | una fuente | 1 casilla · cuadrado | no (obstáculo) |
 | `estatua.png` | una estatua | 1 casilla · cuadrado | no (obstáculo) |
 | `rosal.png` | un rosal | 1 casilla · cuadrado | no (obstáculo) |
+| `sombrilla.png` | una sombrilla | 1 casilla · cuadrado | no (obstáculo) |
 | `barril.png` | un barril | 1 casilla · cuadrado | no (obstáculo) |
-| `botellero.png` | un botellero | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
-| `caja.png` | una caja de madera | 1 casilla · cuadrado | no (obstáculo) |
-| `perchero.png` | un perchero | 1 casilla · cuadrado | no (obstáculo) |
-| `reloj.png` | un reloj de pie | 1 casilla · cuadrado | no (obstáculo) |
-| `altar.png` | un altar | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
-| `billar.png` | una mesa de billar | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
-| `bar.png` | una barra de bar | 2 casillas · sprite horizontal 2:1 (p. ej. 128×64); en vertical se gira solo | no (obstáculo) |
+| `botellero.png` | un botellero | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
+| `caja.png` | una caja de botellas | 1 casilla · cuadrado | no (obstáculo) |
+| `bar.png` | una barra | 2 casillas · sprite horizontal 2:1 (p. ej. 64×32); en vertical se gira solo | no (obstáculo) |
 
 ## Suelos — `sprites/floors/`
 
-Una baldosa cuadrada que se repite en cada casilla de la habitación. Si no existe, se usa un color liso.
+Una baldosa cuadrada que se repite en cada casilla de la estancia.
 
-| Archivo | Habitación |
+| Archivo | Estancia |
 |---|---|
-| `cocina.png` | la cocina |
-| `salon.png` | el salón |
-| `dormitorio.png` | el dormitorio |
-| `bano.png` | el baño |
-| `biblioteca.png` | la biblioteca |
-| `comedor.png` | el comedor |
-| `despacho.png` | el despacho |
-| `invernadero.png` | el invernadero |
-| `bodega.png` | la bodega |
-| `vestibulo.png` | el vestíbulo |
+| `suite.png` | la suite nupcial |
+| `vestidor.png` | el vestidor de la novia |
 | `capilla.png` | la capilla |
-| `billar.png` | la sala de billar |
+| `banquete.png` | el salón de banquetes |
+| `pista.png` | la pista de baile |
 | `jardin.png` | el jardín |
+| `cocina.png` | la cocina del catering |
+| `barra.png` | la barra libre |
+| `photocall.png` | el rincón del photocall |
+| `recepcion.png` | la recepción |
+| `aseo.png` | el aseo |
+| `terraza.png` | la terraza |
+| `bodega.png` | la bodega |
 
 Las puertas y ventanas se dibujan con estilos (no necesitan sprite).

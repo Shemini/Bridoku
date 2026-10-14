@@ -12,7 +12,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sin espacio */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* nada */ } },
 };
-const SAVE_V = 2;
+const SAVE_V = 3;
 
 // ------------------------------------------------------------------ Estado
 const DEFAULTS = { rowcol: true, conflicts: true, vibrate: true, timer: true, autofs: true, seenHowto: false };
@@ -134,7 +134,7 @@ async function generate(diff, seed) {
   return generatePuzzle(CONTENT, diff, seed);
 }
 
-const LOAD_MSGS = ['Investigando el caso…', 'Interrogando a los sospechosos…', 'Midiendo las habitaciones…', 'Comprobando coartadas…', 'Cerrando las puertas de la mansión…'];
+const LOAD_MSGS = ['Investigando el caso…', 'Interrogando a los invitados…', 'Repasando el seating plan…', 'Comprobando coartadas…', 'Revisando las fotos del photocall…', 'Cerrando las puertas de la finca…'];
 async function withLoading(fn) {
   const el = $('#loading'), tx = $('#loading-text');
   let i = 0;
@@ -321,7 +321,7 @@ function renderPlayShell() {
       <button class="icon-btn" data-act="howto" aria-label="Ayuda">?</button>
     </div>
     <div class="casestrip">
-      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>Mansión ${esc(puz.mansion)}: <b>${esc(vc.name)}</b> ha aparecido sin vida. ¿Quién estuvo a solas con ${vc.g === 'f' ? 'ella' : 'él'}?</span></div>
+      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>Finca ${esc(puz.venue)}: <b>${esc(vc.name)}</b>, ${esc(vc.role.toLowerCase())}, ha aparecido sin vida. ¿Quién estuvo a solas con ${vc.g === 'f' ? 'ella' : 'él'}?</span></div>
       <div class="compass" title="Norte arriba"><div><b>N</b>↑</div></div>
     </div>
     <div class="boardwrap"><div class="board" id="board"></div></div>
@@ -386,7 +386,7 @@ function objectsHTML() {
       let style = box + `--w:${w};--h:${h};`;
       if (sprite) style += `background-image:url(${spUrl('items', o.t)});`;
       else if (kind === 'carpet') { const [a, b] = CARPETS[idx % CARPETS.length]; style += `--ca:${a};--cb:${b};`; }
-      html += `<div class="obj ${kind}${sprite ? ' sprite' : ''}${hl}" style="${style}"></div>`;
+      html += `<div class="obj ${kind}${sprite ? ' sprite' : ''}${hl}" style="${style}">${!sprite && it.emoji ? `<span class="em">${it.emoji}</span>` : ''}</div>`;
       return;
     }
     const vert = h > w;
@@ -543,7 +543,9 @@ function drawClues() {
   const ul = $('#clues');
   const top = ul.scrollTop;
   const puz = G.puz;
-  ul.innerHTML = puz.clues.map((c, i) => {
+  const vic = CONTENT.charMap[puz.persons[puz.victim]];
+  const rule = `<li class="clue rule"><div class="ctext">${pchip(puz.victim)} estaba a solas con su asesino: en su habitación solo había otra persona.</div><span class="chk rule-ico">💀</span></li>`;
+  ul.innerHTML = rule + puz.clues.map((c, i) => {
     const toks = clueTokens(c, puz, CONTENT);
     return `<li class="clue${G.done[i] ? ' done' : ''}${U.activeClue === i ? ' active' : ''}" data-act="clue" data-i="${i}">
       <div class="ctext">${tokensHTML(toks)}</div>
@@ -807,7 +809,7 @@ async function shareResult() {
 
 function openHowto() {
   openSheet('Cómo se juega', `
-    <p>Han asesinado a alguien en la mansión. Todos los personajes, <b>incluida la víctima</b>, están en el plano. Colócalos a todos y descubre quién estuvo a solas con la víctima.</p>
+    <p>En plena boda, <b>${esc(CONTENT.charMap[CONTENT.GAME.victim] ? CONTENT.charMap[CONTENT.GAME.victim].name : 'el novio')}</b> ha aparecido sin vida en algún rincón de la finca. Todos los personajes, <b>incluida la víctima</b>, están en el plano. Colócalos a todos y descubre quién estuvo a solas con él.</p>
     <h4>Las reglas</h4>
     <ul>
       <li>Hay exactamente <b>una persona por fila y una por columna</b>.</li>

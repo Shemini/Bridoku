@@ -67,6 +67,10 @@ for (const key of keys) {
       const b = bruteCount(puz);
       if (b !== 1) status += ' BRUTA=' + b;
     }
+    const seen = new Set();
+    for (const c of puz.clues) { if (c.a !== undefined) seen.add(c.a); if (c.b !== undefined) seen.add(c.b); }
+    for (let p = 0; p < puz.N; p++) if (p !== puz.victim && !seen.has(p)) status += ' SIN_PISTA(' + puz.persons[p] + ')';
+    if (puz.persons[puz.victim] !== CONTENT.GAME.victim) status += ' VICTIMA=' + puz.persons[puz.victim];
     if (status !== 'ok') { bad++; console.log(key, i, status); }
   }
   const avg = (a) => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1);
