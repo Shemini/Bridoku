@@ -199,3 +199,12 @@ img.ui { width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em
 .topbar { padding: 8px 12px 4px; }
 .tray { padding: 10px 14px 8px; }
 .clues { padding: 0 14px 12px; }
+
+/* ---------------------------------------------- app instalada (iPhone y Android) */
+/* Con "black-translucent" el juego ocupa también la zona de la barra de estado:
+   esta franja hace legible la hora y la batería (texto blanco del sistema). */
+.statusbar { position: fixed; left: 0; right: 0; top: 0; height: env(safe-area-inset-top); background: #4a3550; z-index: 90; pointer-events: none; }
+.steps { margin: 4px 0 14px; padding-left: 22px; line-height: 1.5; }
+.steps li { margin-bottom: 8px; }
+.ios-share { display: inline-block; width: 14px; height: 16px; vertical-align: -2px; margin: 0 2px;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 18' fill='none' stroke='%234a3550' stroke-width='1.6'%3E%3Cpath d='M7 1v10M3.5 4.5 7 1l3.5 3.5'/%3E%3Cpath d='M4.5 7H2v10h10V7H9.5'/%3E%3C/svg%3E"); }

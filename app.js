@@ -251,12 +251,31 @@ function isStandalone() {
   return matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
 function canFullscreen() { const el = document.documentElement; return !!(el.requestFullscreen || el.webkitRequestFullscreen); }
+// iPhone: Safari no deja que una web se ponga a pantalla completa (solo los vídeos).
+// La única forma es instalarla en la pantalla de inicio: se abre como app, sin barras.
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
 function needsFsHint() {
   if (isStandalone()) return '';
-  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (ios) return `<div class="card"><div class="meta" style="margin:0">📲 Para jugar a pantalla completa en iPhone: pulsa <b>Compartir</b> y luego <b>Añadir a pantalla de inicio</b>.</div></div>`;
+  if (isIOS() && !canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="ios-install">📲 Jugar a pantalla completa</button>`;
   if (canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="fullscreen">⛶ Pantalla completa</button>`;
   return '';
+}
+function openIosInstall() {
+  const chrome = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
+  openSheet('Pantalla completa en iPhone', `
+    <p>En iPhone, Safari no permite que una web ocupe toda la pantalla. La solución es <b>añadir Bridoku a la pantalla de inicio</b>: desde su icono se abre como una app, sin barras del navegador y también sin conexión.</p>
+    <ol class="steps">
+      ${chrome
+        ? '<li>Toca el botón <b>Compartir</b> <span class="ios-share" aria-hidden="true"></span> junto a la barra de direcciones.</li>'
+        : '<li>Toca el botón <b>Compartir</b> <span class="ios-share" aria-hidden="true"></span> de Safari. En iOS 26, si no lo ves, toca primero <b>···</b> abajo a la derecha.</li>'}
+      <li>Elige <b>Añadir a pantalla de inicio</b> (si no aparece, desliza la lista o toca <b>Ver más</b>).</li>
+      <li>Deja activado <b>Abrir como app web</b> y toca <b>Añadir</b>.</li>
+      <li>Abre <b>Bridoku</b> desde el nuevo icono.</li>
+    </ol>
+    <p class="hint">Ojo: el iPhone guarda por separado el progreso de la app y el de Safari, así que los casos empezados aquí no aparecerán en la app.</p>
+    <button class="btn" data-act="close-sheet">Entendido</button>`);
 }
 async function toggleFullscreen(silent) {
   const el = document.documentElement;
@@ -852,7 +871,7 @@ function openSettings() {
     ${row('conflicts', 'Marcar conflictos', 'Borde rojo si dos soluciones comparten fila o columna, o si repites personaje.')}
     ${row('timer', 'Mostrar el cronómetro', 'El tiempo se sigue contando aunque lo ocultes.')}
     ${row('vibrate', 'Vibración', 'Respuesta háptica al tocar (si tu móvil lo permite).')}
-    ${row('autofs', 'Pantalla completa automática', 'En móviles, al empezar un caso (no funciona en iPhone).')}
+    ${isIOS() && !canFullscreen() ? '' : row('autofs', 'Pantalla completa automática', 'En móviles, al empezar un caso.')}
     <div class="stack" style="margin-top:16px">
       <button class="btn ghost" data-act="sprites">Galería de sprites</button>
       <button class="btn ghost" data-act="howto">Cómo se juega</button>
@@ -889,6 +908,7 @@ document.addEventListener('click', (e) => {
     case 'settings': return openSettings();
     case 'sprites': return openSprites();
     case 'fullscreen': return toggleFullscreen(false);
+    case 'ios-install': return openIosInstall();
     case 'close-sheet': return closeSheet();
     case 'toggle': {
       const k = el.dataset.k; settings[k] = !settings[k]; saveSettings();
@@ -945,6 +965,11 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   await probeSprites();
   renderHome();
   show('home');
+  // en iPhone (Safari), explicar una vez cómo jugar a pantalla completa
+  if (isIOS() && !isStandalone() && !canFullscreen() && !settings.seenIosTip) {
+    settings.seenIosTip = true; saveSettings();
+    setTimeout(openIosInstall, 700);
+  }
   // para pruebas y depuración
   window.__mdk = { get G() { return G; }, U, H, settings, startFree, startDaily, tapCell, pick, setTool, stats: () => stats };
 })();
