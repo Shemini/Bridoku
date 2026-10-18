@@ -9,7 +9,7 @@
 export const GAME = {
   title: 'Bridoku',
   subtitle: 'Una boda. Un novio muerto. Una cuadrícula.',
-  epoch: '2026-10-14',            // día 1 del "Caso del día"
+  epoch: '2026-10-01',            // primer día de los casos diarios (y del archivo)
   victim: 'sabas',                // la víctima es siempre este personaje
   venues: [                       // nombres de las fincas
     'El Encinar', 'Los Almendros', 'La Alameda', 'Valdeolivo', 'El Rosal',
@@ -75,7 +75,7 @@ export const ITEMS = [
   { id: 'mesilla',      name: 'mesilla',            det: 'una', walk: false, shape: 'one',  around: ['cama'], emoji: '🕯️' },
   { id: 'tocador',      name: 'tocador',            det: 'un',  walk: false, shape: 'one',  wall: true, emoji: '💄' },
   { id: 'espejo',       name: 'espejo de pie',      det: 'un',  walk: false, shape: 'one',  wall: true, emoji: '🪞' },
-  { id: 'maniqui',      name: 'maniquí con el vestido', det: 'un', walk: false, shape: 'one', emoji: '👰' },
+  { id: 'maniqui',      name: 'maniquí con el vestido', plural: 'maniquíes con vestido', det: 'un', walk: false, shape: 'one', emoji: '👰' },
   { id: 'perchero',     name: 'perchero',           det: 'un',  walk: false, shape: 'one',  wall: true, emoji: '🧥' },
   { id: 'cubitera',     name: 'cubitera de champán',det: 'una', walk: false, shape: 'one',  emoji: '🍾' },
   { id: 'nevera',       name: 'nevera',             det: 'una', walk: false, shape: 'one',  wall: true, emoji: '🧊' },
@@ -84,8 +84,8 @@ export const ITEMS = [
   { id: 'lavabo',       name: 'lavabo',             det: 'un',  walk: false, shape: 'one',  wall: true, emoji: '🚿' },
   { id: 'cabina_dj',    name: 'cabina del DJ',      det: 'una', walk: false, shape: 'pair', wall: true, emoji: '🎧' },
   { id: 'altavoz',      name: 'altavoz',            det: 'un',  walk: false, shape: 'one',  wall: true, emoji: '🔊' },
-  { id: 'photocall',    name: 'photocall',          det: 'un',  walk: false, shape: 'pair', wall: true, emoji: '📸' },
-  { id: 'baul',         name: 'baúl de disfraces',  det: 'un',  walk: false, shape: 'one',  emoji: '🧳' },
+  { id: 'photocall',    name: 'photocall',          plural: 'photocalls', det: 'un',  walk: false, shape: 'pair', wall: true, emoji: '📸' },
+  { id: 'baul',         name: 'baúl de disfraces',  plural: 'baúles de disfraces', det: 'un',  walk: false, shape: 'one',  emoji: '🧳' },
   { id: 'libro_firmas', name: 'libro de firmas',    det: 'un',  walk: false, shape: 'one',  emoji: '📖' },
   { id: 'fuente',       name: 'fuente',             det: 'una', walk: false, shape: 'one',  emoji: '⛲' },
   { id: 'estatua',      name: 'estatua',            det: 'una', walk: false, shape: 'one',  emoji: '🗿' },

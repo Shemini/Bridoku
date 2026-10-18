@@ -79,15 +79,20 @@ const OPP = { 1: 4, 2: 8, 4: 1, 8: 2 };
 const BASE_W = {
   IN_ROOM: 1.8, NOT_IN_ROOM: 1.1, ON: 2.8, NOT_ON: 0.9, FLOOR: 0.7, NOT_FLOOR: 0.6,
   BESIDE: 2.8, NOT_BESIDE: 1, BESIDE_WIN: 2, NOT_BESIDE_WIN: 0.8, BESIDE_DOOR: 1.7, NOT_BESIDE_DOOR: 0.7,
-  ROW_HAS: 1, COL_HAS: 1, NOT_ROW_HAS: 0.5, NOT_COL_HAS: 0.5, LINE: 1.1, ON_EDGE: 0.6, NOT_EDGE: 0.6,
-  ALONE: 1.2, NOT_ALONE: 0.9, SAME_ROOM: 1.3, DIFF_ROOM: 0.9, ALONE_WITH: 1.5, DIAG: 0.6, NOT_DIAG: 0.3,
-  NORTH: 0.6, WEST: 0.6, ROW_OFF: 0.45, COL_OFF: 0.45,
+  ROW_HAS: 1.1, COL_HAS: 1.1, NOT_ROW_HAS: 0.5, NOT_COL_HAS: 0.5, LINE: 1.2, ON_EDGE: 0.6, NOT_EDGE: 0.6,
+  ALONE: 1.2, NOT_ALONE: 0.9,
+  // pistas que relacionan a dos sospechosos: pocas (ver REL)
+  SAME_ROOM: 0.5, DIFF_ROOM: 0.35, ALONE_WITH: 0.6, DIAG: 0.25, NOT_DIAG: 0.1,
+  NORTH: 0.25, WEST: 0.25, ROW_OFF: 0.2, COL_OFF: 0.2,
   ROOM_COUNT: 1.4, ROOM_GT: 0.9, ROOM_EQ: 0.6, EMPTY_ROOMS: 0.9,
   NOBODY_ON: 1.1, ONLY_ON: 1.8, CRIME_HAS: 1.3, CRIME_NOT_HAS: 0.8, CRIME_WIN: 0.8, CRIME_NOWIN: 0.8,
 };
-// Familias: se penaliza repetir mucho la misma familia en un caso.
-const FAMILY = { ROW_OFF: 'off', COL_OFF: 'off', NORTH: 'dir', WEST: 'dir', DIAG: 'dir', NOT_DIAG: 'dir',
-  ROW_HAS: 'line', COL_HAS: 'line', NOT_ROW_HAS: 'line', NOT_COL_HAS: 'line', LINE: 'line' };
+// Familias: se penaliza repetir mucho la misma familia en un caso. Todas las pistas
+// entre dos personas comparten familia ("rel"), así que cada una que sale hace menos
+// probable la siguiente.
+const REL = ['SAME_ROOM', 'DIFF_ROOM', 'ALONE_WITH', 'DIAG', 'NOT_DIAG', 'NORTH', 'WEST', 'ROW_OFF', 'COL_OFF'];
+const FAMILY = { ROW_HAS: 'line', COL_HAS: 'line', NOT_ROW_HAS: 'line', NOT_COL_HAS: 'line', LINE: 'line' };
+for (const t of REL) FAMILY[t] = 'rel';
 const famOf = (t) => FAMILY[t] || t;
 const NEG = new Set(['NOT_IN_ROOM', 'NOT_ON', 'NOT_FLOOR', 'NOT_BESIDE', 'NOT_BESIDE_WIN', 'NOT_BESIDE_DOOR', 'NOT_ROW_HAS',
   'NOT_COL_HAS', 'NOT_EDGE', 'NOT_ALONE', 'DIFF_ROOM', 'NOT_DIAG', 'ROOM_GT', 'ROOM_EQ', 'CRIME_NOT_HAS', 'NOBODY_ON']);
@@ -882,7 +887,7 @@ function pickClues(rng, scene, ctx, D) {
   const chosen = [];
   const used = new Set();
   const take = (j) => { chosen.push(j); used.add(j); const f = famOf(pool[j].t); usedType[f] = (usedType[f] || 0) + 1; if (pool[j].a !== undefined) mentioned.add(pool[j].a); if (pool[j].b !== undefined) mentioned.add(pool[j].b); };
-  const rep = (j) => usedType[famOf(pool[j].t)] || 0;
+  const rep = (j) => { const f = famOf(pool[j].t); return (usedType[f] || 0) * (f === 'rel' ? 2.5 : 1); };
   const mentioned = new Set();
   const fresh = (j) => { const d = pool[j]; return (d.a !== undefined && !mentioned.has(d.a)) || (d.b !== undefined && !mentioned.has(d.b)) ? 1.6 : 1; };
   const consOf = (idxs) => consFrom(idxs.map((j) => comp[j]));

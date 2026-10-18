@@ -98,18 +98,45 @@ function todayKey(d = new Date()) { return d.getFullYear() + '-' + String(d.getM
 function parseKey(k) { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); }
 function addDays(k, n) { const d = parseKey(k); d.setDate(d.getDate() + n); return todayKey(d); }
 function caseNumber(k) { return Math.round((parseKey(k) - parseKey(CONTENT.GAME.epoch)) / 86400000) + 1; }
-const DAILY_BY_DOW = { 0: 'experto', 1: 'facil', 2: 'facil', 3: 'normal', 4: 'normal', 5: 'dificil', 6: 'dificil' };
-function dailyInfo() {
-  const key = todayKey();
-  const diff = DAILY_BY_DOW[parseKey(key).getDay()];
-  return { key, num: caseNumber(key), diff, seed: 'D' + key, id: diff + ':D' + key };
+// Casos diarios: uno por dificultad y día. Se generan a partir de la fecha (semilla
+// "D" + fecha), así que son iguales en todos los móviles y no hace falta guardarlos.
+const DIFF_KEYS = Object.keys(DIFFICULTIES);
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const WDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const cap1 = (t) => t[0].toUpperCase() + t.slice(1);
+function fmtDay(k) { const d = parseKey(k); return `${WDAYS[d.getDay()]} ${d.getDate()} de ${MONTHS[d.getMonth()]}`; }
+function fmtDayShort(k) { const d = parseKey(k); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`; }
+const dailyId = (key, diff) => diff + ':D' + key;
+const archiveStart = () => CONTENT.GAME.epoch;             // primer día del archivo
+const isPlayableDay = (k) => k >= archiveStart() && k <= todayKey();
+function dayStatus(key, diff) {
+  const id = dailyId(key, diff);
+  const s = stats.solved[id];
+  if (s) return { state: 'solved', time: s.time, hints: s.hints };
+  const g = loadGame(id);
+  if (g && g.status === 'playing' && (placedCount(g) > 0 || g.time > 5)) return { state: 'playing', time: g.time };
+  return { state: 'new' };
 }
+function daySolvedCount(key) { return DIFF_KEYS.filter((d) => stats.solved[dailyId(key, d)]).length; }
+// racha: días seguidos (hasta hoy o ayer) con al menos un caso resuelto
 function streak() {
   let k = todayKey();
-  if (!stats.daily[k]) k = addDays(k, -1);
+  if (!daySolvedCount(k)) k = addDays(k, -1);
   let n = 0;
-  while (stats.daily[k]) { n++; k = addDays(k, -1); }
+  while (k >= archiveStart() && daySolvedCount(k)) { n++; k = addDays(k, -1); }
   return n;
+}
+function statusText(st) {
+  if (st.state === 'solved') return `✓ ${fmtTime(st.time)}`;
+  if (st.state === 'playing') return `En curso · ${fmtTime(st.time)}`;
+  return 'Sin empezar';
+}
+function dayButtons(key) {
+  return `<div class="diffgrid">${DIFF_KEYS.map((d) => {
+    const D = DIFFICULTIES[d], st = dayStatus(key, d);
+    return `<button class="diff ${st.state}" data-act="daily" data-key="${key}" data-diff="${d}">
+      <b>${D.label}</b><span>Plano ${D.N}×${D.N} · ${D.N - 1} sospechosos</span><i>${statusText(st)}</i></button>`;
+  }).join('')}</div>`;
 }
 const dLabel = (d) => DIFFICULTIES[d].label + ' · ' + DIFFICULTIES[d].N + '×' + DIFFICULTIES[d].N;
 const pname = (p) => CONTENT.charMap[G.puz.persons[p]].name;
@@ -172,8 +199,7 @@ function saveGame() {
   LS.set('mdk.current', G.id);
   const idx = LS.get('mdk.saves', []).filter((x) => x !== G.id);
   idx.unshift(G.id);
-  const keep = new Set(Object.values(stats.daily || {}));
-  while (idx.length > 14) { const old = idx.pop(); if (!keep.has(old)) LS.del('mdk.save.' + old); }
+  while (idx.length > 40) LS.del('mdk.save.' + idx.pop());
   LS.set('mdk.saves', idx);
 }
 function loadGame(id) {
@@ -193,18 +219,11 @@ function show(name) {
 const placedCount = (g) => g.sol.filter((p) => p >= 0).length;
 
 function renderHome() {
-  const d = dailyInfo();
-  const ds = loadGame(d.id);
-  const solved = !!stats.daily[d.key];
-  const started = ds && ds.status === 'playing' && (placedCount(ds) > 0 || ds.time > 5);
+  const today = todayKey();
   const st = streak();
   const curId = LS.get('mdk.current', '');
-  const cur = curId && curId !== d.id ? loadGame(curId) : null;
-  const resumeG = cur && cur.status === 'playing' ? cur : null;
-  const sol = solved && ds ? ds : null;
-
-  let dailyBtn = `<button class="btn" data-act="daily">${started ? 'Continuar caso' : 'Investigar'}</button>`;
-  if (solved) dailyBtn = `<button class="btn ghost" data-act="daily">Ver resultado</button>`;
+  const cur = curId ? loadGame(curId) : null;
+  const resumeG = cur && cur.status === 'playing' && cur.dailyKey && cur.dailyKey !== today && isPlayableDay(cur.dailyKey) ? cur : null;
 
   $('#screen-home').innerHTML = `
   <div class="home">
@@ -217,25 +236,20 @@ function renderHome() {
 
     <div class="card daily">
       <div class="tagrow">
-        <span class="tag brass">Caso del día</span>
-        <span class="tag">#${d.num}</span>
-        <span class="tag">${esc(dLabel(d.diff))}</span>
+        <span class="tag brass">Casos de hoy</span>
+        <span class="tag">#${caseNumber(today)}</span>
         ${st > 0 ? `<span class="tag ok">🔥 Racha ${st}</span>` : ''}
       </div>
-      <h3>${solved ? 'Caso resuelto' : 'Un caso nuevo cada día'}</h3>
-      <div class="meta">${solved && sol ? `Lo resolviste en ${fmtTime(sol.time)}${sol.hints ? ` · ${sol.hints} pista${sol.hints > 1 ? 's' : ''}` : ''}. Vuelve mañana.` : started ? `En curso · ${fmtTime(ds.time)}` : 'Todos reciben el mismo caso. La dificultad sube a lo largo de la semana.'}</div>
-      ${dailyBtn}
+      <h3>${esc(cap1(fmtDay(today)))}</h3>
+      <div class="meta">Un caso por dificultad. Son los mismos para todo el mundo y cambian cada día.</div>
+      ${dayButtons(today)}
     </div>
 
-    ${resumeG ? `<div class="card"><div class="tagrow"><span class="tag">En curso</span><span class="tag">${esc(dLabel(resumeG.puz.diff))}</span></div>
-      <div class="meta">Tienes un caso a medias · ${fmtTime(resumeG.time)}</div>
-      <button class="btn ghost" data-act="resume" data-id="${esc(resumeG.id)}">Continuar</button></div>` : ''}
+    ${resumeG ? `<div class="card"><div class="tagrow"><span class="tag">En curso</span><span class="tag">${esc(fmtDayShort(resumeG.dailyKey))}</span><span class="tag">${esc(dLabel(resumeG.puz.diff))}</span></div>
+      <div class="meta">Tienes un caso del archivo a medias · ${fmtTime(resumeG.time)}</div>
+      <button class="btn ghost" data-act="daily" data-key="${resumeG.dailyKey}" data-diff="${resumeG.puz.diff}">Continuar</button></div>` : ''}
 
-    <div class="sectiontitle">Caso libre</div>
-    <div class="diffgrid">
-      ${Object.values(DIFFICULTIES).map((D) => `<button class="diff" data-act="new" data-diff="${D.key}">
-        <b>${D.label}</b><span>Plano ${D.N}×${D.N} · ${D.N - 1} sospechosos</span><i>${solvedCount(D.key)} resueltos</i></button>`).join('')}
-    </div>
+    <button class="btn ghost" data-act="archive">📅 Archivo de casos anteriores</button>
 
     ${needsFsHint()}
     <div class="linkrow">
@@ -245,7 +259,46 @@ function renderHome() {
     <div class="fine">Los casos se generan en tu dispositivo · funciona sin conexión</div>
   </div>`;
 }
-function solvedCount(diff) { return Object.values(stats.solved).filter((s) => s.diff === diff).length; }
+
+// ------------------------------------------------------------- Archivo
+function openArchive(ym) {
+  const today = todayKey(), start = archiveStart();
+  ym = ym || U.archYM || today.slice(0, 7);
+  if (ym < start.slice(0, 7)) ym = start.slice(0, 7);
+  if (ym > today.slice(0, 7)) ym = today.slice(0, 7);
+  U.archYM = ym;
+  const [y, m] = ym.split('-').map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const offset = (new Date(y, m - 1, 1).getDay() + 6) % 7;     // la semana empieza en lunes
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+  const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  let cells = '';
+  for (let i = 0; i < offset; i++) cells += '<span class="cal-gap"></span>';
+  for (let d = 1; d <= days; d++) {
+    const key = `${ym}-${String(d).padStart(2, '0')}`;
+    const ok = isPlayableDay(key);
+    let pips = '';
+    if (ok) pips = DIFF_KEYS.map((df) => `<i class="${dayStatus(key, df).state}"></i>`).join('');
+    cells += `<button class="cal-day${key === today ? ' today' : ''}${ok && daySolvedCount(key) === DIFF_KEYS.length ? ' full' : ''}" ${ok ? `data-act="arch-day" data-key="${key}"` : 'disabled'}>
+      <b>${d}</b><span class="pips">${pips}</span></button>`;
+  }
+  openSheet('Archivo de casos', `
+    <div class="cal-nav">
+      <button class="icon-btn" data-act="archive" data-ym="${prev}" ${prev < start.slice(0, 7) ? 'disabled' : ''} aria-label="Mes anterior">‹</button>
+      <b>${cap1(MONTHS[m - 1])} ${y}</b>
+      <button class="icon-btn" data-act="archive" data-ym="${next}" ${next > today.slice(0, 7) ? 'disabled' : ''} aria-label="Mes siguiente">›</button>
+    </div>
+    <div class="cal-head">${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((w) => `<span>${w}</span>`).join('')}</div>
+    <div class="cal">${cells}</div>
+    <p class="hint">Cada cuadradito es una dificultad (Fácil, Normal, Difícil, Experto): relleno si está resuelto, a medias si está en curso.</p>`);
+}
+function openArchiveDay(key) {
+  if (!isPlayableDay(key)) return;
+  openSheet(`Caso #${caseNumber(key)}`, `
+    <p><b>${esc(cap1(fmtDay(key)))}</b></p>
+    ${dayButtons(key)}
+    <div class="stack" style="margin-top:14px"><button class="btn ghost" data-act="archive" data-ym="${key.slice(0, 7)}">‹ Volver al calendario</button></div>`);
+}
 
 function isStandalone() {
   return matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -301,6 +354,12 @@ async function openGame(id, makeFn, kind, dailyKey) {
     if (!makeFn) return;
     const puz = await withLoading(makeFn);
     g = newGameFrom(puz, kind, dailyKey);
+    // caso ya resuelto cuya partida se borró: se muestra resuelto
+    const rec = stats.solved[id];
+    if (rec) {
+      g.status = 'solved'; g.time = rec.time || 0; g.hints = rec.hints || 0; g.checks = rec.checks || 0; g.wrong = rec.wrong || 0;
+      puz.solution.forEach((x, p) => { g.sol[x] = p; });
+    }
   }
   G = g; U.sel = -1; U.tool = 'sol'; U.pen = false; U.hl = null; G.labels = null;
   renderPlayShell();
@@ -310,17 +369,21 @@ async function openGame(id, makeFn, kind, dailyKey) {
   if (G.status === 'solved') openVictory(true);
   else if (!settings.seenHowto) { settings.seenHowto = true; saveSettings(); setTimeout(openHowto, 350); }
 }
-function startDaily() {
-  const d = dailyInfo();
+function openDaily(key, diff) {
+  if (!isPlayableDay(key) || !DIFFICULTIES[diff]) return toast('Ese caso aún no está disponible');
+  // si venimos de una hoja (archivo, resultado…), se cierra sin tocar el historial:
+  // su entrada pasa a ser la de la partida
+  if (sheetOpen()) {
+    $('#sheet-bg').classList.remove('on'); $('#sheet').classList.remove('on');
+    if (H.stack[H.stack.length - 1] === 'sheet') {
+      H.stack.pop();
+      if (!H.stack.includes('play')) H.stack.push('play');
+      else { H.ignore++; try { history.back(); } catch (e) { H.ignore--; } }
+    }
+  }
   autoFullscreen();
-  return openGame(d.id, () => generate(d.diff, d.seed), 'daily', d.key);
+  return openGame(dailyId(key, diff), () => generate(diff, 'D' + key), 'daily', key);
 }
-function startFree(diff) {
-  const seed = 'F' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
-  autoFullscreen();
-  return openGame(diff + ':' + seed, () => generate(diff, seed), 'free', '');
-}
-function resume(id) { autoFullscreen(); return openGame(id, null, 'free', ''); }
 
 function goHome(fromPop) {
   saveGame();
@@ -337,12 +400,13 @@ function goHome(fromPop) {
 function renderPlayShell() {
   const puz = G.puz, v = puz.victim;
   const vc = CONTENT.charMap[puz.persons[v]];
-  const num = G.kind === 'daily' ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
+  const num = G.dailyKey ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
+  const sub = G.dailyKey ? `${dLabel(puz.diff)} · ${fmtDayShort(G.dailyKey)}` : dLabel(puz.diff);
   $('#screen-play').innerHTML = `
   <div class="play">
     <div class="topbar">
       <button class="icon-btn" data-act="home" aria-label="Menú">‹</button>
-      <div class="ttl">${num}<small>${esc(dLabel(puz.diff))}</small></div>
+      <div class="ttl">${num}<small>${esc(sub)}</small></div>
       <div class="timer" id="timer"></div>
       <button class="icon-btn" data-act="hint" aria-label="Pista">${uiImg('pista')}</button>
       <button class="icon-btn" data-act="check" aria-label="Revisar">${uiImg('comprobar')}</button>
@@ -350,7 +414,6 @@ function renderPlayShell() {
     </div>
     <div class="casestrip">
       <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>Finca ${esc(puz.venue)}: <b>${esc(vc.name)}</b>, ${esc(vc.role.toLowerCase())}, ha aparecido sin vida. ¿Quién estuvo a solas con ${vc.g === 'f' ? 'ella' : 'él'}?</span></div>
-      <div class="compass" title="Norte arriba"><div><b>N</b>↑</div></div>
     </div>
     <div class="boardwrap"><div class="board" id="board"></div></div>
     <div class="modebar" id="modebar"></div>
@@ -790,7 +853,6 @@ function doAccuse() {
     puz.solution.forEach((x, p) => { G.sol[x] = p; });
     G.emp = G.emp.map((e, x) => (G.sol[x] >= 0 ? 0 : e));
     stats.solved[G.id] = { diff: puz.diff, time: G.time, hints: G.hints, checks: G.checks, wrong: G.wrong, at: Date.now(), kind: G.kind };
-    if (G.kind === 'daily') stats.daily[G.dailyKey] = G.id;
     saveStats(); saveGame();
     U.sel = -1;
     drawAll();
@@ -810,7 +872,9 @@ function storyText() {
 }
 function openVictory(again) {
   const puz = G.puz;
-  const num = G.kind === 'daily' ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
+  const key = G.dailyKey;
+  const num = key ? `Caso #${caseNumber(key)} · ${fmtDayShort(key)}` : 'Caso libre';
+  const nextDiff = key ? DIFF_KEYS.find((d) => d !== puz.diff && !stats.solved[dailyId(key, d)]) : null;
   openSheet(again ? 'Caso cerrado' : '¡Caso resuelto!', `
   <div class="reveal">
     <div class="cast">${avatar(puz.persons[puz.murderer])}</div>
@@ -819,15 +883,16 @@ function openVictory(again) {
     <div class="stats"><span class="tag brass">⏱ ${fmtTime(G.time)}</span><span class="tag">💡 ${G.hints} pista${G.hints === 1 ? '' : 's'}</span><span class="tag">✔︎ ${G.checks} revisión${G.checks === 1 ? '' : 'es'}</span>${G.wrong ? `<span class="tag">❌ ${G.wrong} fallo${G.wrong === 1 ? '' : 's'}</span>` : ''}</div>
     <div class="stack">
       <button class="btn" data-act="share">Compartir resultado</button>
-      <button class="btn ghost" data-act="again" data-diff="${puz.diff}">Otro caso ${esc(DIFFICULTIES[puz.diff].label)}</button>
+      ${nextDiff ? `<button class="btn ghost" data-act="daily" data-key="${key}" data-diff="${nextDiff}">Siguiente: ${esc(DIFFICULTIES[nextDiff].label)} del ${esc(fmtDayShort(key))}</button>` : ''}
+      <button class="btn ghost" data-act="archive" data-ym="${(key || todayKey()).slice(0, 7)}">📅 Archivo de casos</button>
       <button class="btn ghost" data-act="home">Volver al inicio</button>
     </div>
-    <p class="hint" style="margin-top:12px">${num} · ${esc(dLabel(puz.diff))}${G.kind === 'daily' && streak() ? ` · 🔥 racha de ${streak()}` : ''}</p>
+    <p class="hint" style="margin-top:12px">${esc(num)} · ${esc(dLabel(puz.diff))}${streak() ? ` · 🔥 racha de ${streak()}` : ''}</p>
   </div>`);
 }
 async function shareResult() {
   const puz = G.puz;
-  const num = G.kind === 'daily' ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
+  const num = G.dailyKey ? `Caso #${caseNumber(G.dailyKey)} (${fmtDayShort(G.dailyKey)})` : 'Caso libre';
   const text = `${CONTENT.GAME.title} · ${num} · ${dLabel(puz.diff)}\n✅ Resuelto en ${fmtTime(G.time)} · 💡 ${G.hints} · ✔︎ ${G.checks}`;
   try {
     if (navigator.share) await navigator.share({ text });
@@ -858,8 +923,9 @@ function openHowto() {
     <ul>
       <li><b>Al lado de</b>: casilla contigua (arriba, abajo, izquierda o derecha) <u>dentro de la misma habitación</u>. Una pared de por medio no cuenta, y las diagonales tampoco.</li>
       <li>Las <b>puertas y ventanas</b> están en los muros: «junto a una ventana» es estar en una casilla que toca ese muro.</li>
-      <li><b>Norte</b> es arriba y <b>oeste</b> es la izquierda del plano.</li>
-      <li>«En la misma fila que una planta»: en esa fila hay alguna planta, en cualquier habitación.</li>
+      <li><b>Arriba, abajo, izquierda y derecha</b> se refieren al plano tal como lo ves.</li>
+      <li>«Junto a la planta» habla de la única planta del plano. Si hay varias, la pista dice «junto a <b>una de las</b> plantas»: vale cualquiera de ellas (al tocar la pista se iluminan todas).</li>
+      <li>«En la misma fila que el piano»: en esa fila está el piano, en cualquier habitación.</li>
     </ul>
     <button class="btn" data-act="close-sheet">¡A investigar!</button>`);
 }
@@ -899,10 +965,9 @@ document.addEventListener('click', (e) => {
   if (!el) return;
   const act = el.dataset.act;
   switch (act) {
-    case 'daily': return startDaily();
-    case 'new': return startFree(el.dataset.diff);
-    case 'again': closeSheet(); return startFree(el.dataset.diff);
-    case 'resume': return resume(el.dataset.id);
+    case 'daily': return openDaily(el.dataset.key || todayKey(), el.dataset.diff || 'normal');
+    case 'archive': return openArchive(el.dataset.ym);
+    case 'arch-day': return openArchiveDay(el.dataset.key);
     case 'home': return goHome(false);
     case 'howto': return openHowto();
     case 'settings': return openSettings();
@@ -971,5 +1036,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     setTimeout(openIosInstall, 700);
   }
   // para pruebas y depuración
-  window.__mdk = { get G() { return G; }, U, H, settings, startFree, startDaily, tapCell, pick, setTool, stats: () => stats };
+  window.__mdk = { get G() { return G; }, U, H, settings, openDaily, openArchive, tapCell, pick, setTool, stats: () => stats };
 })();

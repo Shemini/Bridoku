@@ -5,6 +5,7 @@ const P = (i) => ({ k: 'p', i });
 const T = (s) => ({ k: 't', s });
 const RM = (r, o = {}) => ({ k: 'room', r, ...o });
 const IT = (id, o = {}) => ({ k: 'item', id, ...o });
+
 const WIN = { k: 'win' };
 const DOOR = { k: 'door' };
 
@@ -12,11 +13,19 @@ const NUM = ['ninguna', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete'
 const ROWS_TXT = ['', 'una fila', 'dos filas'];
 const COLS_TXT = ['', 'una columna', 'dos columnas'];
 const LINE_TXT = {
-  N: 'en la fila más al norte', S: 'en la fila más al sur',
-  W: 'en la columna más al oeste', E: 'en la columna más al este',
+  N: 'en la fila de más arriba', S: 'en la fila de más abajo',
+  W: 'en la columna de más a la izquierda', E: 'en la columna de más a la derecha',
 };
 
 export function clueTokens(c, puz, content) {
+  const toks = clueTokens0(c, puz, content);
+  const counts = {};
+  for (const ob of puz.objs || []) counts[ob.t] = (counts[ob.t] || 0) + 1;
+  for (const t of toks) if (t.k === 'item' && t.ref) t.n = counts[t.id] || 1;
+  return toks;
+}
+
+function clueTokens0(c, puz, content) {
   const v = c.v || 0;
   const pick = (arr) => arr[v % arr.length];
   const isV = (i) => i === puz.victim;
@@ -66,14 +75,14 @@ export function clueTokens(c, puz, content) {
         [P(c.a), T(' estaba sobre un mueble o una alfombra.')]]);
     case 'BESIDE':
       return pick([
-        [P(c.a), T(' estaba al lado de '), IT(c.k), T('.')],
-        [T('Junto a '), P(c.a), T(' había '), IT(c.k), T('.')],
-        [P(c.a), T(' estaba pegad' + o(c.a) + ' a '), IT(c.k), T('.')]]);
+        [P(c.a), T(' estaba al lado '), IT(c.k, { ref: 'de' }), T('.')],
+        [P(c.a), T(' estaba junto '), IT(c.k, { ref: 'a' }), T('.')],
+        [P(c.a), T(' estaba pegad' + o(c.a) + ' '), IT(c.k, { ref: 'a' }), T('.')]]);
     case 'NOT_BESIDE':
       return pick([
-        [P(c.a), T(' no estaba al lado de '), IT(c.k), T('.')],
-        [T('Junto a '), P(c.a), T(' no había '), IT(c.k), T('.')],
-        [P(c.a), T(' no estaba al lado de '), IT(c.k), T('.')]]);
+        [P(c.a), T(' no estaba al lado de '), IT(c.k, { any: true }), T('.')],
+        [T('Junto a '), P(c.a), T(' no había '), IT(c.k, { any: true }), T('.')],
+        [P(c.a), T(' no estaba junto a '), IT(c.k, { any: true }), T('.')]]);
     case 'BESIDE_WIN':
       return pick([
         [P(c.a), T(' estaba junto a '), WIN, T('.')],
@@ -83,7 +92,7 @@ export function clueTokens(c, puz, content) {
       return pick([
         [P(c.a), T(' no estaba junto a ninguna '), { k: 'win', bare: true }, T('.')],
         [P(c.a), T(' no estaba al lado de ninguna '), { k: 'win', bare: true }, T('.')],
-        [P(c.a), T(' estaba lejos de las '), { k: 'win', plural: true }, T('.')]]);
+        [P(c.a), T(' no tenía ninguna '), { k: 'win', bare: true }, T(' al lado.')]]);
     case 'BESIDE_DOOR':
       return pick([
         [P(c.a), T(' estaba junto a '), DOOR, T('.')],
@@ -93,11 +102,11 @@ export function clueTokens(c, puz, content) {
       return pick([
         [P(c.a), T(' no estaba junto a ninguna '), { k: 'door', bare: true }, T('.')],
         [P(c.a), T(' no estaba al lado de ninguna '), { k: 'door', bare: true }, T('.')],
-        [P(c.a), T(' estaba lejos de las '), { k: 'door', plural: true }, T('.')]]);
+        [P(c.a), T(' no tenía ninguna '), { k: 'door', bare: true }, T(' al lado.')]]);
     case 'ROW_HAS':
       return pick([
-        [P(c.a), T(' estaba en la misma fila que '), IT(c.k), T('.')],
-        [P(c.a), T(' estaba en la misma fila que '), IT(c.k), T('.')],
+        [P(c.a), T(' estaba en la misma fila '), IT(c.k, { ref: 'que' }), T('.')],
+        [P(c.a), T(' estaba en la misma fila '), IT(c.k, { ref: 'que' }), T('.')],
         [T('En la fila de '), P(c.a), T(' había '), IT(c.k), T('.')]]);
     case 'NOT_ROW_HAS':
       return pick([
@@ -106,8 +115,8 @@ export function clueTokens(c, puz, content) {
         [T('En la fila de '), P(c.a), T(' no había '), IT(c.k, { any: true }), T('.')]]);
     case 'COL_HAS':
       return pick([
-        [P(c.a), T(' estaba en la misma columna que '), IT(c.k), T('.')],
-        [P(c.a), T(' estaba en la misma columna que '), IT(c.k), T('.')],
+        [P(c.a), T(' estaba en la misma columna '), IT(c.k, { ref: 'que' }), T('.')],
+        [P(c.a), T(' estaba en la misma columna '), IT(c.k, { ref: 'que' }), T('.')],
         [T('En la columna de '), P(c.a), T(' había '), IT(c.k), T('.')]]);
     case 'NOT_COL_HAS':
       return pick([
@@ -128,7 +137,7 @@ export function clueTokens(c, puz, content) {
       return pick([
         [P(c.a), T(' no estaba junto a ningún muro exterior.')],
         [P(c.a), T(' no estaba en el borde del plano.')],
-        [P(c.a), T(' estaba en el interior, lejos de los muros exteriores.')]]);
+        [P(c.a), T(' no tocaba ningún muro exterior.')]]);
     case 'ALONE':
       return pick([
         [P(c.a), T(' estaba sol' + o(c.a) + ' en su habitación.')],
@@ -166,24 +175,24 @@ export function clueTokens(c, puz, content) {
         [P(c.a), T(' y '), P(c.b), T(' no se tocaban por ninguna esquina.')]]);
     case 'NORTH':
       return pick([
-        [P(c.a), T(' estaba más al norte que '), P(c.b), T('.')],
-        [P(c.b), T(' estaba más al sur que '), P(c.a), T('.')],
-        [P(c.a), T(' estaba por encima de '), P(c.b), T(' en el plano.')]]);
+        [P(c.a), T(' estaba más arriba que '), P(c.b), T(' en el plano.')],
+        [P(c.b), T(' estaba más abajo que '), P(c.a), T(' en el plano.')],
+        [P(c.a), T(' estaba en una fila por encima de la de '), P(c.b), T('.')]]);
     case 'WEST':
       return pick([
-        [P(c.a), T(' estaba más al oeste que '), P(c.b), T('.')],
-        [P(c.b), T(' estaba más al este que '), P(c.a), T('.')],
-        [P(c.a), T(' estaba a la izquierda de '), P(c.b), T(' en el plano.')]]);
+        [P(c.a), T(' estaba más a la izquierda que '), P(c.b), T(' en el plano.')],
+        [P(c.b), T(' estaba más a la derecha que '), P(c.a), T(' en el plano.')],
+        [P(c.a), T(' estaba en una columna a la izquierda de la de '), P(c.b), T('.')]]);
     case 'ROW_OFF':
       return pick([
-        [P(c.a), T(` estaba exactamente ${ROWS_TXT[c.k]} al norte de `), P(c.b), T('.')],
-        [P(c.b), T(` estaba exactamente ${ROWS_TXT[c.k]} al sur de `), P(c.a), T('.')],
-        [P(c.a), T(` estaba ${ROWS_TXT[c.k]} más al norte que `), P(c.b), T('.')]]);
+        [P(c.a), T(` estaba exactamente ${ROWS_TXT[c.k]} por encima de `), P(c.b), T('.')],
+        [P(c.b), T(` estaba exactamente ${ROWS_TXT[c.k]} por debajo de `), P(c.a), T('.')],
+        [P(c.a), T(` estaba ${ROWS_TXT[c.k]} más arriba que `), P(c.b), T('.')]]);
     case 'COL_OFF':
       return pick([
-        [P(c.a), T(` estaba exactamente ${COLS_TXT[c.k]} al oeste de `), P(c.b), T('.')],
-        [P(c.b), T(` estaba exactamente ${COLS_TXT[c.k]} al este de `), P(c.a), T('.')],
-        [P(c.a), T(` estaba ${COLS_TXT[c.k]} más al oeste que `), P(c.b), T('.')]]);
+        [P(c.a), T(` estaba exactamente ${COLS_TXT[c.k]} a la izquierda de `), P(c.b), T('.')],
+        [P(c.b), T(` estaba exactamente ${COLS_TXT[c.k]} a la derecha de `), P(c.a), T('.')],
+        [P(c.a), T(` estaba ${COLS_TXT[c.k]} más a la izquierda que `), P(c.b), T('.')]]);
     case 'ROOM_COUNT':
       if (c.n === 0) return pick([
         [T('No había nadie en '), RM(c.r), T('.')],
@@ -260,12 +269,39 @@ export function roomText(r, puz, content, o = {}) {
   if (o.cap) s = s[0].toUpperCase() + s.slice(1);
   return s;
 }
+// Plural de un nombre de mueble: se pluralizan las palabras hasta "de"/"del"/"con".
+const ACC = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u' };
+function pluralWord(w) {
+  if (/[aeiouáéó]$/i.test(w)) return w + 's';
+  if (/[íú]$/i.test(w)) return w + 'es';
+  if (/z$/i.test(w)) return w.slice(0, -1) + 'ces';
+  // sillón → sillones, bañera ya acaba en vocal
+  return w.replace(/([áéíóú])([^aeiouáéíóú]*)$/i, (m, v, tail) => (tail ? ACC[v.toLowerCase()] + tail : m)) + 'es';
+}
+export function pluralName(it) {
+  if (it.plural) return it.plural;
+  const words = it.name.split(' ');
+  let stop = false;
+  return words.map((w) => {
+    if (stop || ['de', 'del', 'con'].includes(w)) { stop = true; return w; }
+    return pluralWord(w);
+  }).join(' ');
+}
 // o.any → "ningún/ninguna X" · o.bare → solo el nombre
+// o.ref ('de' | 'a' | 'que') → un mueble concreto: "del rosal" si solo hay uno en el plano,
+//   "de uno de los rosales" si hay varios (cualquiera de ellos vale). o.n = cuántos hay.
 export function itemText(id, content, o = {}) {
   const it = content.itemMap[id];
   if (!it) return id;
   if (o.bare) return it.name;
   if (o.any) return (it.det === 'una' ? 'ninguna ' : 'ningún ') + it.name;
+  if (o.ref) {
+    const fem = it.det === 'una';
+    if ((o.n || 1) > 1) return `${o.ref} ${fem ? 'una de las' : 'uno de los'} ${pluralName(it)}`;
+    if (!fem && o.ref === 'de') return 'del ' + it.name;
+    if (!fem && o.ref === 'a') return 'al ' + it.name;
+    return `${o.ref} ${fem ? 'la' : 'el'} ${it.name}`;
+  }
   return it.det + ' ' + it.name;
 }
 export function openingText(t) {

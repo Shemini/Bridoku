@@ -1,6 +1,6 @@
 # Bridoku · juego web para móvil
 
-Rompecabezas de lógica con temática de boda, al estilo de los libros de Murdoku de Manuel Garand. En plena boda, **Sabas, el novio, aparece muerto**: hay que colocar a todos los invitados en el plano de la finca y descubrir **quién estuvo a solas con él**. Los casos se **generan automáticamente** (todos con solución única garantizada) y hay un **caso del día** igual para todos.
+Rompecabezas de lógica con temática de boda, al estilo de los libros de Murdoku de Manuel Garand. En plena boda, **Sabas, el novio, aparece muerto**: hay que colocar a todos los invitados en el plano de la finca y descubrir **quién estuvo a solas con él**. Los casos se **generan automáticamente** (todos con solución única garantizada) y cada día hay **cuatro casos nuevos, uno por dificultad**, iguales para todos. Los de días anteriores siguen disponibles en el **archivo**.
 
 Está hecho como web app (PWA): se puede jugar desde el navegador o instalarla en la pantalla de inicio para que se vea **a pantalla completa, como una aplicación**, y funciona **sin conexión**.
 
@@ -83,8 +83,10 @@ Todo vive en `content.js`:
 - **Habitación:** estaba o no estaba en ella.
 - **Muebles:** sentado/tumbado en…, al lado de…, sobre el suelo desnudo, la única persona sentada en…, nadie estaba en…
 - **Muros:** junto a una ventana o una puerta, junto a un muro exterior.
-- **Filas y columnas:** en la misma fila o columna que un mueble, en la fila más al norte, en la columna más al este…
-- **Entre personas:** misma habitación o distinta, a solas con…, en diagonal, más al norte o al oeste que…, exactamente una o dos filas o columnas de distancia.
+- **Filas y columnas:** en la misma fila o columna que un mueble, en la fila de más arriba, en la columna de más a la derecha…
+- **Entre personas** (pocas, como mucho una o dos por caso): misma habitación o distinta, a solas con…, en diagonal, más arriba o más a la izquierda que…, exactamente una o dos filas o columnas de distancia.
+
+Cuando una pista habla de un mueble que se repite en el plano, lo dice: «junto al rosal» si solo hay uno, «junto a uno de los rosales» si hay varios (vale cualquiera).
 - **Recuentos:** cuánta gente había en una habitación, comparaciones entre habitaciones, cuántas habitaciones quedaron vacías.
 - **Escena del crimen:** qué muebles o ventanas había donde apareció el cuerpo.
 
@@ -104,7 +106,9 @@ Es determinista: la misma semilla da el mismo caso en cualquier móvil (así el 
 | Difícil | 7×7 | 6 | 6 |
 | Experto | 8×8 | 7 | 7 |
 
-Caso del día: lunes y martes Fácil, miércoles y jueves Normal, viernes y sábado Difícil, domingo Experto (`DAILY_BY_DOW` en `app.js`).
+**Casos diarios y archivo.** Cada día hay un caso de cada dificultad. Se generan a partir de la fecha (semilla `D2026-10-18`, por ejemplo), así que no hay que guardarlos en ningún sitio: cualquier móvil genera exactamente el mismo caso para la misma fecha y dificultad. El archivo muestra un calendario desde `GAME.epoch` en `content.js` (el 1 de octubre de 2026) hasta hoy, con el estado de cada caso. No hay casos aleatorios.
+
+> Ojo: si se cambia el generador o el contenido (`engine.js`, `content.js`), los casos de cada fecha cambian. Los que alguien tenga empezados o resueltos se conservan tal cual, porque cada partida guarda su propio caso.
 
 **Marcado tipo sudoku**
 
