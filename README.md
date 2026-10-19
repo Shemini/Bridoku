@@ -106,6 +106,8 @@ Es determinista: la misma semilla da el mismo caso en cualquier móvil (así el 
 | Difícil | 7×7 | 6 | 6 |
 | Experto | 8×8 | 7 | 7 |
 
+**Sospechosos.** La lista está en `content.js` (`CHARACTERS`): más de 100 invitados reales, de los que cada caso escoge unos pocos al azar sin repetir inicial. En la interfaz (bandeja, acusación, pistas) aparecen en orden alfabético, con Sabas siempre primero. Sabas usa † como marca de lápiz para no chocar con los sospechosos que empiezan por S.
+
 **Casos diarios y archivo.** Cada día hay un caso de cada dificultad. Se generan a partir de la fecha (semilla `D2026-10-18`, por ejemplo), así que no hay que guardarlos en ningún sitio: cualquier móvil genera exactamente el mismo caso para la misma fecha y dificultad. El archivo muestra un calendario desde `GAME.epoch` en `content.js` (el 1 de octubre de 2026) hasta hoy, con el estado de cada caso. No hay casos aleatorios.
 
 > Ojo: si se cambia el generador o el contenido (`engine.js`, `content.js`), los casos de cada fecha cambian. Los que alguien tenga empezados o resueltos se conservan tal cual, porque cada partida guarda su propio caso.

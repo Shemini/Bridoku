@@ -57,7 +57,7 @@ function avatar(cid, opts = {}) {
   const dead = opts.dead && has('characters', cid + '_dead');
   const id = dead ? cid + '_dead' : cid;
   if (has('characters', id)) return `<img class="av sp" src="${spUrl('characters', id)}" alt="${esc(c.name)}" draggable="false">`;
-  return `<span class="badge" style="--c:${c.color};--fg:${textOn(c.color)}">${esc(c.mark)}</span>`;
+  return `<span class="badge" style="--c:${c.color};--fg:${textOn(c.color)}">${esc(c.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')[0].toUpperCase())}</span>`;
 }
 function itemIcon(id) {
   const it = CONTENT.itemMap[id];
@@ -205,6 +205,7 @@ function saveGame() {
 function loadGame(id) {
   const s = LS.get('mdk.save.' + id, null);
   if (!s || !s.puz || s.v !== SAVE_V) return null;
+  if (!s.puz.persons.every((id) => CONTENT.charMap[id])) return null;   // personajes que ya no existen
   s.undo = []; s.flash = null;
   return s;
 }

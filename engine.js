@@ -376,6 +376,11 @@ function buildScene(rng, content, D) {
     seenMark.add(c.mark); persons.push(c.id);
   }
   if (persons.length < N) for (const c of content.CHARACTERS) if (persons.length < N && !persons.includes(c.id)) persons.push(c.id);
+  // la víctima primero y los sospechosos en orden alfabético (así salen en la interfaz).
+  // Comparación propia, sin localeCompare, para que el orden sea idéntico en todos los navegadores.
+  const sortKey = (id) => content.charMap[id].name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const rest = persons.slice(victimId ? 1 : 0).sort((x, y) => (sortKey(x) < sortKey(y) ? -1 : sortKey(x) > sortKey(y) ? 1 : 0));
+  persons.splice(victimId ? 1 : 0, rest.length, ...rest);
   const victim = 0;
 
   for (let attempt = 0; attempt < 400; attempt++) {

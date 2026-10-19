@@ -71,6 +71,10 @@ for (const key of keys) {
     for (const c of puz.clues) { if (c.a !== undefined) seen.add(c.a); if (c.b !== undefined) seen.add(c.b); }
     for (let p = 0; p < puz.N; p++) if (p !== puz.victim && !seen.has(p)) status += ' SIN_PISTA(' + puz.persons[p] + ')';
     if (puz.persons[puz.victim] !== CONTENT.GAME.victim) status += ' VICTIMA=' + puz.persons[puz.victim];
+    const marks = puz.persons.map((id) => CONTENT.charMap[id].mark);
+    if (new Set(marks).size !== marks.length) status += ' INICIALES_REPETIDAS(' + marks.join('') + ')';
+    const names = puz.persons.slice(1).map((id) => CONTENT.charMap[id].name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
+    if (names.join() !== names.slice().sort().join()) status += ' DESORDEN';
     if (status !== 'ok') { bad++; console.log(key, i, status); }
   }
   const avg = (a) => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1);
