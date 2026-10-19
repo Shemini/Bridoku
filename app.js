@@ -478,7 +478,7 @@ function objectsHTML() {
       let style = box + `--w:${w};--h:${h};`;
       if (sprite) style += `background-image:url(${spUrl('items', o.t)});`;
       else if (kind === 'carpet') { const [a, b] = CARPETS[idx % CARPETS.length]; style += `--ca:${a};--cb:${b};`; }
-      html += `<div class="obj ${kind}${sprite ? ' sprite' : ''}${hl}" style="${style}">${!sprite && it.emoji ? `<span class="em">${it.emoji}</span>` : ''}</div>`;
+      html += `<div class="obj ${kind} t-${o.t}${sprite ? ' sprite' : ''}${hl}" style="${style}">${!sprite && it.emoji ? `<span class="em">${it.emoji}</span>` : ''}</div>`;
       return;
     }
     const vert = h > w;
