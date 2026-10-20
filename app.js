@@ -173,29 +173,10 @@ async function generate(diff, seed) {
 async function withLoading(fn) {
   const el = $('#loading'), tx = $('#loading-text');
   const msgs = tr('loading');
-  let i = 0, walker = null, ready = false, skipRes;
-  el.classList.add('on'); el.classList.remove('ready'); tx.textContent = msgs[0];
-  const cyc = setInterval(() => { i = (i + 1) % msgs.length; if (!ready) tx.textContent = msgs[i]; }, 1800);
-  // la novia cruza la pantalla una vez entera; con el caso listo, un toque la salta
-  const skip = new Promise((res) => { skipRes = res; });
-  const onTap = () => { if (ready) skipRes(); };
-  el.addEventListener('click', onTap);
-  let walkDone = Promise.resolve();
-  try {
-    const m = await import('./novia-walker.js');
-    walker = m.noviaWalker($('#walker-lane'), { once: true });
-    walkDone = walker.done;
-  } catch (e) { /* sin animación */ }
-  try {
-    const res = await fn();
-    ready = true;
-    el.classList.add('ready'); tx.textContent = tr('tapSkip');
-    await Promise.race([walkDone, skip]);
-    return res;
-  } finally {
-    clearInterval(cyc); el.removeEventListener('click', onTap); el.classList.remove('on', 'ready');
-    if (walker) { walker.stop(); walker = null; }
-  }
+  let i = 0;
+  const show = setTimeout(() => { el.classList.add('on'); tx.textContent = msgs[0]; }, 250);
+  const cyc = setInterval(() => { i = (i + 1) % msgs.length; tx.textContent = msgs[i]; }, 1800);
+  try { return await fn(); } finally { clearTimeout(show); clearInterval(cyc); el.classList.remove('on'); }
 }
 
 // --------------------------------------------------------- Guardar / cargar
@@ -235,6 +216,7 @@ function saveSettings() { LS.set('mdk.settings', settings); }
 function show(name) {
   $('#screen-home').classList.toggle('on', name === 'home');
   $('#screen-play').classList.toggle('on', name === 'play');
+  if (name === 'home') startWalker(); else stopWalker();
 }
 const placedCount = (g) => g.sol.filter((p) => p >= 0).length;
 
@@ -255,6 +237,8 @@ function renderHome() {
       <div class="rule"></div>
       <p>${esc(tr('subtitle'))}</p>
     </div>
+
+    <div class="walker-stage" aria-hidden="true"><div id="walker-lane" class="walker-lane"></div><div class="walker-ground"></div></div>
 
     <div class="card daily">
       <div class="tagrow">
@@ -280,6 +264,19 @@ function renderHome() {
     </div>
     <div class="fine">${tr('fine')}</div>
   </div>`;
+  startWalker();
+}
+// Novia caminante de la portada: se crea tras cada render y se detiene al salir de la portada.
+let walker = null;
+function stopWalker() { if (walker) { walker.stop(); walker = null; } }
+function startWalker() {
+  stopWalker();
+  const lane = $('#walker-lane');
+  if (!lane || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  import('./novia-walker.js').then((m) => {
+    if (!lane.isConnected || !$('#screen-home').classList.contains('on')) return;
+    stopWalker(); walker = m.noviaWalker(lane, { scale: 2 });
+  }).catch(() => {});
 }
 
 // ------------------------------------------------------------- Archivo
