@@ -32,9 +32,12 @@ export function noviaWalker(lane, opts = {}) {
   while (x < W) for (let f = META.walkB[0]; f <= META.walkB[1]; f++) push(f, 1 / WALK_FPS, V / WALK_FPS);
   const total = t;
 
-  let raf = 0, start = performance.now(), last = -1;
+  let raf = 0, start = performance.now(), last = -1, doneRes;
+  const done = new Promise((res) => { doneRes = res; });
   function frame(now) {
-    const tt = ((now - start) / 1000) % total;
+    const el = (now - start) / 1000;
+    if (opts.once && el >= total) { spr.style.transform = `translateX(${W + 10}px)`; doneRes(); return; }
+    const tt = el % total;
     let lo = 0, hi = steps.length - 1;
     while (lo < hi) { const m = (lo + hi + 1) >> 1; if (steps[m].t <= tt) lo = m; else hi = m - 1; }
     const s = steps[lo];
@@ -45,7 +48,8 @@ export function noviaWalker(lane, opts = {}) {
   }
   raf = requestAnimationFrame(frame);
   return {
-    stop() { cancelAnimationFrame(raf); spr.remove(); },
+    done,
+    stop() { cancelAnimationFrame(raf); spr.remove(); doneRes(); },
     info: { S, k, V, xc, x0, total, steps },
   };
 }

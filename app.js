@@ -3,7 +3,8 @@
 // ============================================================================
 import { CONTENT } from './content.js';
 import { DIFFICULTIES } from './engine.js';
-import { clueTokens, clueRefs, roomText, itemText, openingText } from './texts.js';
+import { clueTokens, clueRefs, roomText, itemText, openingText, roomLabel } from './texts.js';
+import { tr, getLang, setLang, nextLang, LANGS } from './i18n.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -101,11 +102,9 @@ function caseNumber(k) { return Math.round((parseKey(k) - parseKey(CONTENT.GAME.
 // Casos diarios: uno por dificultad y día. Se generan a partir de la fecha (semilla
 // "D" + fecha), así que son iguales en todos los móviles y no hace falta guardarlos.
 const DIFF_KEYS = Object.keys(DIFFICULTIES);
-const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const WDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const cap1 = (t) => t[0].toUpperCase() + t.slice(1);
-function fmtDay(k) { const d = parseKey(k); return `${WDAYS[d.getDay()]} ${d.getDate()} de ${MONTHS[d.getMonth()]}`; }
-function fmtDayShort(k) { const d = parseKey(k); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`; }
+function fmtDay(k) { const d = parseKey(k); return tr('dayLong', { wd: tr('wdays')[d.getDay()], d: d.getDate(), m: tr('months')[d.getMonth()] }); }
+function fmtDayShort(k) { const d = parseKey(k); return tr('dayShort', { d: d.getDate(), m: tr('months')[d.getMonth()] }); }
 const dailyId = (key, diff) => diff + ':D' + key;
 const archiveStart = () => CONTENT.GAME.epoch;             // primer día del archivo
 const isPlayableDay = (k) => k >= archiveStart() && k <= todayKey();
@@ -127,18 +126,19 @@ function streak() {
   return n;
 }
 function statusText(st) {
-  if (st.state === 'solved') return `✓ ${fmtTime(st.time)}`;
-  if (st.state === 'playing') return `En curso · ${fmtTime(st.time)}`;
-  return 'Sin empezar';
+  if (st.state === 'solved') return tr('stSolved', { t: fmtTime(st.time) });
+  if (st.state === 'playing') return tr('stPlaying', { t: fmtTime(st.time) });
+  return tr('stNew');
 }
 function dayButtons(key) {
   return `<div class="diffgrid">${DIFF_KEYS.map((d) => {
     const D = DIFFICULTIES[d], st = dayStatus(key, d);
     return `<button class="diff ${st.state}" data-act="daily" data-key="${key}" data-diff="${d}">
-      <b>${D.label}</b><span>Plano ${D.N}×${D.N} · ${D.N - 1} sospechosos</span><i>${statusText(st)}</i></button>`;
+      <b>${dName(d)}</b><span>${tr('plan', { n: D.N, s: D.N - 1 })}</span><i>${statusText(st)}</i></button>`;
   }).join('')}</div>`;
 }
-const dLabel = (d) => DIFFICULTIES[d].label + ' · ' + DIFFICULTIES[d].N + '×' + DIFFICULTIES[d].N;
+const dName = (d) => tr('diff.' + d);
+const dLabel = (d) => dName(d) + ' · ' + DIFFICULTIES[d].N + '×' + DIFFICULTIES[d].N;
 const pname = (p) => CONTENT.charMap[G.puz.persons[p]].name;
 
 // ------------------------------------------------------------ Generación
@@ -170,16 +170,32 @@ async function generate(diff, seed) {
   return generatePuzzle(CONTENT, diff, seed);
 }
 
-const LOAD_MSGS = ['Investigando el caso…', 'Interrogando a los invitados…', 'Repasando el seating plan…', 'Comprobando coartadas…', 'Revisando las fotos del photocall…', 'Cerrando las puertas de la finca…'];
 async function withLoading(fn) {
   const el = $('#loading'), tx = $('#loading-text');
-  let i = 0, walker = null;
-  const show = setTimeout(() => {
-    el.classList.add('on'); tx.textContent = LOAD_MSGS[0];
-    import('./novia-walker.js').then((m) => { if (el.classList.contains('on') && !walker) walker = m.noviaWalker($('#walker-lane')); }).catch(() => {});
-  }, 250);
-  const cyc = setInterval(() => { i = (i + 1) % LOAD_MSGS.length; tx.textContent = LOAD_MSGS[i]; }, 1800);
-  try { return await fn(); } finally { clearTimeout(show); clearInterval(cyc); el.classList.remove('on'); if (walker) { walker.stop(); walker = null; } }
+  const msgs = tr('loading');
+  let i = 0, walker = null, ready = false, skipRes;
+  el.classList.add('on'); el.classList.remove('ready'); tx.textContent = msgs[0];
+  const cyc = setInterval(() => { i = (i + 1) % msgs.length; if (!ready) tx.textContent = msgs[i]; }, 1800);
+  // la novia cruza la pantalla una vez entera; con el caso listo, un toque la salta
+  const skip = new Promise((res) => { skipRes = res; });
+  const onTap = () => { if (ready) skipRes(); };
+  el.addEventListener('click', onTap);
+  let walkDone = Promise.resolve();
+  try {
+    const m = await import('./novia-walker.js');
+    walker = m.noviaWalker($('#walker-lane'), { once: true });
+    walkDone = walker.done;
+  } catch (e) { /* sin animación */ }
+  try {
+    const res = await fn();
+    ready = true;
+    el.classList.add('ready'); tx.textContent = tr('tapSkip');
+    await Promise.race([walkDone, skip]);
+    return res;
+  } finally {
+    clearInterval(cyc); el.removeEventListener('click', onTap); el.classList.remove('on', 'ready');
+    if (walker) { walker.stop(); walker = null; }
+  }
 }
 
 // --------------------------------------------------------- Guardar / cargar
@@ -226,41 +242,43 @@ function renderHome() {
   const today = todayKey();
   const st = streak();
   const curId = LS.get('mdk.current', '');
-  const cur = curId ? loadGame(curId) : null;
-  const resumeG = cur && cur.status === 'playing' && cur.dailyKey && cur.dailyKey !== today && isPlayableDay(cur.dailyKey) ? cur : null;
+  const curG = curId ? loadGame(curId) : null;
+  const resumeG = curG && curG.status === 'playing' && curG.dailyKey && curG.dailyKey !== today && isPlayableDay(curG.dailyKey) ? curG : null;
 
+  const cur = LANGS.find((l) => l.id === getLang());
   $('#screen-home').innerHTML = `
+  <button class="lang-btn" data-act="lang" aria-label="${tr('language')}: ${cur.name}">🌐 ${cur.label}</button>
   <div class="home">
     <div class="hero">
-      <div class="eyebrow">Rompecabezas de lógica</div>
+      <div class="eyebrow">${tr('eyebrow')}</div>
       <h1>${esc(CONTENT.GAME.title)}</h1>
       <div class="rule"></div>
-      <p>${esc(CONTENT.GAME.subtitle)}</p>
+      <p>${esc(tr('subtitle'))}</p>
     </div>
 
     <div class="card daily">
       <div class="tagrow">
-        <span class="tag brass">Casos de hoy</span>
+        <span class="tag brass">${tr('todayCases')}</span>
         <span class="tag">#${caseNumber(today)}</span>
-        ${st > 0 ? `<span class="tag ok">🔥 Racha ${st}</span>` : ''}
+        ${st > 0 ? `<span class="tag ok">${tr('streak', { n: st })}</span>` : ''}
       </div>
       <h3>${esc(cap1(fmtDay(today)))}</h3>
-      <div class="meta">Un caso por dificultad. Son los mismos para todo el mundo y cambian cada día.</div>
+      <div class="meta">${tr('todayInfo')}</div>
       ${dayButtons(today)}
     </div>
 
-    ${resumeG ? `<div class="card"><div class="tagrow"><span class="tag">En curso</span><span class="tag">${esc(fmtDayShort(resumeG.dailyKey))}</span><span class="tag">${esc(dLabel(resumeG.puz.diff))}</span></div>
-      <div class="meta">Tienes un caso del archivo a medias · ${fmtTime(resumeG.time)}</div>
-      <button class="btn ghost" data-act="daily" data-key="${resumeG.dailyKey}" data-diff="${resumeG.puz.diff}">Continuar</button></div>` : ''}
+    ${resumeG ? `<div class="card"><div class="tagrow"><span class="tag">${tr('inProgress')}</span><span class="tag">${esc(fmtDayShort(resumeG.dailyKey))}</span><span class="tag">${esc(dLabel(resumeG.puz.diff))}</span></div>
+      <div class="meta">${tr('resumeInfo', { t: fmtTime(resumeG.time) })}</div>
+      <button class="btn ghost" data-act="daily" data-key="${resumeG.dailyKey}" data-diff="${resumeG.puz.diff}">${tr('continue')}</button></div>` : ''}
 
-    <button class="btn ghost" data-act="archive">📅 Archivo de casos anteriores</button>
+    <button class="btn ghost" data-act="archive">${tr('archiveBtn')}</button>
 
     ${needsFsHint()}
     <div class="linkrow">
-      <button class="link" data-act="howto">Cómo se juega</button>
-      <button class="link" data-act="settings">Ajustes</button>
+      <button class="link" data-act="howto">${tr('howto')}</button>
+      <button class="link" data-act="settings">${tr('settings')}</button>
     </div>
-    <div class="fine">Los casos se generan en tu dispositivo · funciona sin conexión</div>
+    <div class="fine">${tr('fine')}</div>
   </div>`;
 }
 
@@ -286,22 +304,22 @@ function openArchive(ym) {
     cells += `<button class="cal-day${key === today ? ' today' : ''}${ok && daySolvedCount(key) === DIFF_KEYS.length ? ' full' : ''}" ${ok ? `data-act="arch-day" data-key="${key}"` : 'disabled'}>
       <b>${d}</b><span class="pips">${pips}</span></button>`;
   }
-  openSheet('Archivo de casos', `
+  openSheet(tr('archiveTitle'), `
     <div class="cal-nav">
-      <button class="icon-btn" data-act="archive" data-ym="${prev}" ${prev < start.slice(0, 7) ? 'disabled' : ''} aria-label="Mes anterior">‹</button>
-      <b>${cap1(MONTHS[m - 1])} ${y}</b>
-      <button class="icon-btn" data-act="archive" data-ym="${next}" ${next > today.slice(0, 7) ? 'disabled' : ''} aria-label="Mes siguiente">›</button>
+      <button class="icon-btn" data-act="archive" data-ym="${prev}" ${prev < start.slice(0, 7) ? 'disabled' : ''} aria-label="${tr('prevMonth')}">‹</button>
+      <b>${cap1(tr('months')[m - 1])} ${y}</b>
+      <button class="icon-btn" data-act="archive" data-ym="${next}" ${next > today.slice(0, 7) ? 'disabled' : ''} aria-label="${tr('nextMonth')}">›</button>
     </div>
-    <div class="cal-head">${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((w) => `<span>${w}</span>`).join('')}</div>
+    <div class="cal-head">${tr('weekHead').map((w) => `<span>${w}</span>`).join('')}</div>
     <div class="cal">${cells}</div>
-    <p class="hint">Cada cuadradito es una dificultad (Fácil, Normal, Difícil, Experto): relleno si está resuelto, a medias si está en curso.</p>`);
+    <p class="hint">${tr('archiveHint')}</p>`);
 }
 function openArchiveDay(key) {
   if (!isPlayableDay(key)) return;
-  openSheet(`Caso #${caseNumber(key)}`, `
+  openSheet(tr('caseN', { n: caseNumber(key) }), `
     <p><b>${esc(cap1(fmtDay(key)))}</b></p>
     ${dayButtons(key)}
-    <div class="stack" style="margin-top:14px"><button class="btn ghost" data-act="archive" data-ym="${key.slice(0, 7)}">‹ Volver al calendario</button></div>`);
+    <div class="stack" style="margin-top:14px"><button class="btn ghost" data-act="archive" data-ym="${key.slice(0, 7)}">${tr('backCalendar')}</button></div>`);
 }
 
 function isStandalone() {
@@ -315,24 +333,14 @@ function isIOS() {
 }
 function needsFsHint() {
   if (isStandalone()) return '';
-  if (isIOS() && !canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="ios-install">📲 Jugar a pantalla completa</button>`;
-  if (canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="fullscreen">⛶ Pantalla completa</button>`;
+  if (isIOS() && !canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="ios-install">${tr('fsIos')}</button>`;
+  if (canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="fullscreen">${tr('fsBtn')}</button>`;
   return '';
 }
 function openIosInstall() {
   const chrome = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
-  openSheet('Pantalla completa en iPhone', `
-    <p>En iPhone, Safari no permite que una web ocupe toda la pantalla. La solución es <b>añadir Bridoku a la pantalla de inicio</b>: desde su icono se abre como una app, sin barras del navegador y también sin conexión.</p>
-    <ol class="steps">
-      ${chrome
-        ? '<li>Toca el botón <b>Compartir</b> <span class="ios-share" aria-hidden="true"></span> junto a la barra de direcciones.</li>'
-        : '<li>Toca el botón <b>Compartir</b> <span class="ios-share" aria-hidden="true"></span> de Safari. En iOS 26, si no lo ves, toca primero <b>···</b> abajo a la derecha.</li>'}
-      <li>Elige <b>Añadir a pantalla de inicio</b> (si no aparece, desliza la lista o toca <b>Ver más</b>).</li>
-      <li>Deja activado <b>Abrir como app web</b> y toca <b>Añadir</b>.</li>
-      <li>Abre <b>Bridoku</b> desde el nuevo icono.</li>
-    </ol>
-    <p class="hint">Ojo: el iPhone guarda por separado el progreso de la app y el de Safari, así que los casos empezados aquí no aparecerán en la app.</p>
-    <button class="btn" data-act="close-sheet">Entendido</button>`);
+  openSheet(tr('iosTitle'), tr('iosBody', { chrome }) + `
+    <button class="btn" data-act="close-sheet">${tr('gotIt')}</button>`);
 }
 async function toggleFullscreen(silent) {
   const el = document.documentElement;
@@ -343,7 +351,7 @@ async function toggleFullscreen(silent) {
       await (el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: 'hide' });
       try { await screen.orientation.lock('portrait'); } catch (e) { /* no permitido */ }
     }
-  } catch (e) { if (silent !== true) toast('Tu navegador no permite pantalla completa aquí'); }
+  } catch (e) { if (silent !== true) toast(tr('fsFail')); }
 }
 function autoFullscreen() {
   if (!settings.autofs || isStandalone() || !canFullscreen() || document.fullscreenElement) return;
@@ -374,7 +382,7 @@ async function openGame(id, makeFn, kind, dailyKey) {
   else if (!settings.seenHowto) { settings.seenHowto = true; saveSettings(); setTimeout(openHowto, 350); }
 }
 function openDaily(key, diff) {
-  if (!isPlayableDay(key) || !DIFFICULTIES[diff]) return toast('Ese caso aún no está disponible');
+  if (!isPlayableDay(key) || !DIFFICULTIES[diff]) return toast(tr('notAvailable'));
   // si venimos de una hoja (archivo, resultado…), se cierra sin tocar el historial:
   // su entrada pasa a ser la de la partida
   if (sheetOpen()) {
@@ -404,25 +412,25 @@ function goHome(fromPop) {
 function renderPlayShell() {
   const puz = G.puz, v = puz.victim;
   const vc = CONTENT.charMap[puz.persons[v]];
-  const num = G.dailyKey ? `Caso #${caseNumber(G.dailyKey)}` : 'Caso libre';
+  const num = G.dailyKey ? tr('caseN', { n: caseNumber(G.dailyKey) }) : tr('freeCase');
   const sub = G.dailyKey ? `${dLabel(puz.diff)} · ${fmtDayShort(G.dailyKey)}` : dLabel(puz.diff);
   $('#screen-play').innerHTML = `
   <div class="play">
     <div class="topbar">
-      <button class="icon-btn" data-act="home" aria-label="Menú">‹</button>
+      <button class="icon-btn" data-act="home" aria-label="${tr('menu')}">‹</button>
       <div class="ttl">${num}<small>${esc(sub)}</small></div>
       <div class="timer" id="timer"></div>
-      <button class="icon-btn" data-act="hint" aria-label="Pista">${uiImg('pista')}</button>
-      <button class="icon-btn" data-act="check" aria-label="Revisar">${uiImg('comprobar')}</button>
-      <button class="icon-btn" data-act="howto" aria-label="Ayuda">?</button>
+      <button class="icon-btn" data-act="hint" aria-label="${tr('hint')}">${uiImg('pista')}</button>
+      <button class="icon-btn" data-act="check" aria-label="${tr('check')}">${uiImg('comprobar')}</button>
+      <button class="icon-btn" data-act="howto" aria-label="${tr('help')}">?</button>
     </div>
     <div class="casestrip">
-      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>Finca ${esc(puz.venue)}: <b>${esc(vc.name)}</b>, ${esc(vc.role.toLowerCase())}, ha aparecido sin vida. ¿Quién estuvo a solas con ${vc.g === 'f' ? 'ella' : 'él'}?</span></div>
+      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>${tr('intro', { venue: esc(puz.venue), name: esc(vc.name), role: esc(getLang() === 'en' && vc.role_en ? vc.role_en : (vc.role || '').toLowerCase()), him: tr(vc.g === 'f' ? 'her' : 'him') })}</span></div>
     </div>
     <div class="boardwrap"><div class="board" id="board"></div></div>
     <div class="modebar" id="modebar"></div>
     <div class="tray" id="tray"></div>
-    <div class="cluehead"><b>Pistas</b><span id="clue-count"></span></div>
+    <div class="cluehead"><b>${tr('clues')}</b><span id="clue-count"></span></div>
     <ul class="clues" id="clues"></ul>
     <div class="bottombar" id="tools"></div>
   </div>`;
@@ -587,7 +595,7 @@ function drawBoard() {
     const t = CONTENT.roomTypeMap[puz.roomTypes[room]];
     const lc = cellIdx % N, lr = (cellIdx / N) | 0;
     const hpos = lc >= N - 1 ? `right:calc(${pct(N - 1 - lc, N)} + 4px)` : `left:calc(${pct(lc, N)} + 4px)`;
-    lab += `<span class="rl" style="${hpos};top:calc(${pct(lr, N)} + 4px)">${esc(t.label)}</span>`;
+    lab += `<span class="rl" style="${hpos};top:calc(${pct(lr, N)} + 4px)">${esc(roomLabel(t))}</span>`;
   });
   board.innerHTML = html + `<div class="layer">${objectsHTML()}</div><div class="layer top">${openingsHTML()}${lab}</div>`;
 }
@@ -616,22 +624,22 @@ function drawModebar() {
   const mb = $('#modebar');
   if (!mb) return;
   let txt;
-  if (U.tool === 'erase') txt = '<b class="m-erase">Borrar</b> toca casillas para vaciarlas por completo';
-  else if (U.tool === 'empty') txt = '<b class="m-empty">Vacía</b> toca casillas donde no puede haber nadie';
-  else if (U.sel < 0) txt = 'Elige un personaje y toca una casilla';
-  else if (U.pen) txt = `<b class="m-pen">Lápiz</b> posibles casillas de <b>${esc(pname(U.sel))}</b>`;
-  else txt = `<b class="m-sol">Colocar</b> <b>${esc(pname(U.sel))}</b> · toca su casilla`;
+  if (U.tool === 'erase') txt = tr('modeErase');
+  else if (U.tool === 'empty') txt = tr('modeEmpty');
+  else if (U.sel < 0) txt = tr('modeNone');
+  else if (U.pen) txt = tr('modePen', { n: esc(pname(U.sel)) });
+  else txt = tr('modeSol', { n: esc(pname(U.sel)) });
   mb.innerHTML = txt;
 }
 
 function drawTools() {
   const full = G.sol.filter((p) => p >= 0).length === G.puz.N && new Set(G.sol.filter((p) => p >= 0)).size === G.puz.N;
   $('#tools').innerHTML = `
-    <button class="tbtn${U.tool === 'sol' && U.pen ? ' on' : ''}" data-act="tool" data-t="pen"><i>${uiImg('lapiz')}</i>Lápiz</button>
-    <button class="tbtn${U.tool === 'empty' ? ' on' : ''}" data-act="tool" data-t="empty"><i>${uiImg('vacio')}</i>Vacía</button>
-    <button class="tbtn${U.tool === 'erase' ? ' on' : ''}" data-act="tool" data-t="erase"><i>${uiImg('goma')}</i>Borrar</button>
-    <button class="tbtn" data-act="undo" ${G.undo.length ? '' : 'disabled'}><i>${uiImg('deshacer')}</i>Deshacer</button>
-    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}" data-act="accuse"><i>${uiImg('lupa')}</i>Acusar</button>`;
+    <button class="tbtn${U.tool === 'sol' && U.pen ? ' on' : ''}" data-act="tool" data-t="pen"><i>${uiImg('lapiz')}</i>${tr('tPen')}</button>
+    <button class="tbtn${U.tool === 'empty' ? ' on' : ''}" data-act="tool" data-t="empty"><i>${uiImg('vacio')}</i>${tr('tEmpty')}</button>
+    <button class="tbtn${U.tool === 'erase' ? ' on' : ''}" data-act="tool" data-t="erase"><i>${uiImg('goma')}</i>${tr('tErase')}</button>
+    <button class="tbtn" data-act="undo" ${G.undo.length ? '' : 'disabled'}><i>${uiImg('deshacer')}</i>${tr('tUndo')}</button>
+    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}" data-act="accuse"><i>${uiImg('lupa')}</i>${tr('tAccuse')}</button>`;
 }
 
 function drawClues() {
@@ -639,16 +647,16 @@ function drawClues() {
   const top = ul.scrollTop;
   const puz = G.puz;
   const vic = CONTENT.charMap[puz.persons[puz.victim]];
-  const rule = `<li class="clue rule"><div class="ctext">${pchip(puz.victim)} estaba a solas con su asesino: en su habitación solo había otra persona.</div><span class="chk rule-ico">${uiImg('calavera')}</span></li>`;
+  const rule = `<li class="clue rule"><div class="ctext">${tr('victimRule', { v: pchip(puz.victim) })}</div><span class="chk rule-ico">${uiImg('calavera')}</span></li>`;
   ul.innerHTML = rule + puz.clues.map((c, i) => {
     const toks = clueTokens(c, puz, CONTENT);
     return `<li class="clue${G.done[i] ? ' done' : ''}${U.activeClue === i ? ' active' : ''}" data-act="clue" data-i="${i}">
       <div class="ctext">${tokensHTML(toks)}</div>
-      <button class="chk" data-act="chk" data-i="${i}" aria-label="Marcar como usada">✓</button></li>`;
+      <button class="chk" data-act="chk" data-i="${i}" aria-label="${tr('markUsed')}">✓</button></li>`;
   }).join('');
   ul.scrollTop = top;
   const n = G.done.filter(Boolean).length;
-  $('#clue-count').textContent = `${n}/${puz.clues.length} usadas`;
+  $('#clue-count').textContent = tr('used', { n, m: puz.clues.length });
 }
 function updateTimer() {
   const t = $('#timer');
@@ -692,16 +700,16 @@ function tapCell(i) {
   const changed = () => { G.flash = null; drawBoard(); drawTray(); drawTools(); saveGame(); };
 
   if (U.tool === 'erase') {
-    if (G.lock[i]) return toast('Esta casilla la reveló una pista');
+    if (G.lock[i]) return toast(tr('lockedCell'));
     if (cur < 0 && !G.pen[i] && !G.emp[i]) return;
     pushUndo();
     G.sol[i] = -1; G.pen[i] = 0; G.emp[i] = 0;
     buzz(10);
     return changed();
   }
-  if (!puz.walk[i]) return toast('Ahí hay un mueble: nadie puede ocupar esa casilla');
+  if (!puz.walk[i]) return toast(tr('blockedCell'));
   if (U.tool === 'empty') {
-    if (cur >= 0) return toast('Primero quita al personaje de esa casilla');
+    if (cur >= 0) return toast(tr('removeFirst'));
     pushUndo();
     G.emp[i] = G.emp[i] ? 0 : 1;
     buzz(8);
@@ -710,17 +718,17 @@ function tapCell(i) {
   // modos con personaje: colocar o lápiz
   if (U.sel < 0) {
     if (cur >= 0) { U.sel = cur; drawBoard(); drawTray(); return; }
-    return toast('Elige primero un personaje de la lista');
+    return toast(tr('pickFirst'));
   }
   const p = U.sel;
   if (U.pen) {
-    if (cur >= 0) return toast('Esa casilla ya tiene una solución');
+    if (cur >= 0) return toast(tr('hasSolution'));
     pushUndo();
     G.pen[i] ^= (1 << p);
     buzz(6);
     return changed();
   }
-  if (G.lock[i]) return toast('Esta casilla la reveló una pista');
+  if (G.lock[i]) return toast(tr('lockedCell'));
   pushUndo();
   if (cur === p) {
     G.sol[i] = -1;                       // quitar: reaparecen las marcas a lápiz
@@ -759,7 +767,7 @@ function doHint() {
     else if (!right) freeP.push(p);
   }
   const pool = wrongP.length ? wrongP : freeP;
-  if (!pool.length) return toast('Ya está todo bien colocado. ¡Acusa al culpable!');
+  if (!pool.length) return toast(tr('allGood'));
   const p = pool[Math.floor(Math.random() * pool.length)];
   pushUndo();
   for (let x = 0; x < G.sol.length; x++) if (G.sol[x] === p && !G.lock[x]) G.sol[x] = -1;
@@ -767,7 +775,7 @@ function doHint() {
   G.hints++;
   U.sel = p; U.tool = 'sol'; U.pen = false;
   drawAll(); saveGame();
-  toast(`${pname(p)} estaba aquí (pista revelada)`);
+  toast(tr('hintShown', { n: pname(p) }));
 }
 function doCheck() {
   if (G.status !== 'playing') return;
@@ -788,14 +796,14 @@ function doCheck() {
     if (any && !(G.pen[sol[p]] & (1 << p)) && G.sol[sol[p]] !== p) missingPen++;
   }
   if (!bad.length && !missingPen) {
-    toast(placedCount(G) || G.emp.some(Boolean) ? 'Todo lo que has marcado es correcto ✔︎' : 'Aún no hay nada que revisar');
+    toast(placedCount(G) || G.emp.some(Boolean) ? tr('checkOk') : tr('checkNothing'));
   } else {
     G.flash = { cells: bad };
     buzz(30);
     const parts = [];
-    if (wrongSol) parts.push(`${wrongSol} personaje${wrongSol > 1 ? 's' : ''} mal colocado${wrongSol > 1 ? 's' : ''}`);
-    if (wrongEmp) parts.push(`${wrongEmp} casilla${wrongEmp > 1 ? 's' : ''} marcada${wrongEmp > 1 ? 's' : ''} como vacía sin estarlo`);
-    if (missingPen) parts.push(`al lápiz de ${missingPen} personaje${missingPen > 1 ? 's' : ''} le falta su casilla real`);
+    if (wrongSol) parts.push(tr('badSol', { n: wrongSol }));
+    if (wrongEmp) parts.push(tr('badEmp', { n: wrongEmp }));
+    if (missingPen) parts.push(tr('badPen', { n: missingPen }));
     toast('⚠ ' + parts.join(' · '), 3200);
     setTimeout(() => { if (G) { G.flash = null; drawBoard(); } }, 3200);
   }
@@ -839,17 +847,17 @@ function accuseHTML() {
   const vc = CONTENT.charMap[puz.persons[puz.victim]];
   const suspects = puz.persons.map((cid, p) => ({ cid, p })).filter((o) => o.p !== puz.victim);
   return `
-    <p>El asesino es la única persona que estuvo a solas con <b>${esc(vc.name)}</b> en su habitación. ¿Quién fue?</p>
+    <p>${tr('accuseText', { v: esc(vc.name) })}</p>
     <div class="picker">${suspects.map((o) => `<button class="pick${U.acc === o.p ? ' sel' : ''}" data-act="pick-suspect" data-p="${o.p}">${avatar(o.cid)}<span>${esc(CONTENT.charMap[o.cid].name)}</span></button>`).join('')}</div>
-    <button class="btn danger" data-act="do-accuse" ${U.acc < 0 ? 'style="opacity:.5"' : ''}>Acusar</button>`;
+    <button class="btn danger" data-act="do-accuse" ${U.acc < 0 ? 'style="opacity:.5"' : ''}>${tr('tAccuse')}</button>`;
 }
 function openAccuse() {
   if (G.status !== 'playing') return openVictory(true);
   U.acc = -1;
-  openSheet('¿Quién fue?', accuseHTML());
+  openSheet(tr('accuseTitle'), accuseHTML());
 }
 function doAccuse() {
-  if (U.acc < 0) return toast('Elige a un sospechoso');
+  if (U.acc < 0) return toast(tr('pickSuspect'));
   const puz = G.puz;
   if (U.acc === puz.murderer) {
     G.status = 'solved';
@@ -866,86 +874,63 @@ function doAccuse() {
     G.wrong++;
     saveGame();
     buzz(60);
-    toast(`❌ ${pname(U.acc)} no estuvo a solas con la víctima`, 2600);
+    toast(tr('wrongAccuse', { n: pname(U.acc) }), 2600);
     $('#sheet').animate([{ transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' }, { transform: 'none' }], { duration: 260 });
   }
 }
 function storyText() {
   const puz = G.puz;
-  return `${pname(puz.murderer)} estuvo a solas con ${pname(puz.victim)} en ${roomText(puz.crimeRoom, puz, CONTENT)}.`;
+  return tr('story', { m: pname(puz.murderer), v: pname(puz.victim), room: roomText(puz.crimeRoom, puz, CONTENT) });
 }
 function openVictory(again) {
   const puz = G.puz;
   const key = G.dailyKey;
-  const num = key ? `Caso #${caseNumber(key)} · ${fmtDayShort(key)}` : 'Caso libre';
+  const num = key ? `${tr('caseN', { n: caseNumber(key) })} · ${fmtDayShort(key)}` : tr('freeCase');
   const nextDiff = key ? DIFF_KEYS.find((d) => d !== puz.diff && !stats.solved[dailyId(key, d)]) : null;
-  openSheet(again ? 'Caso cerrado' : '¡Caso resuelto!', `
+  openSheet(again ? tr('closedTitle') : tr('solvedTitle'), `
   <div class="reveal">
     <div class="cast">${avatar(puz.persons[puz.murderer])}</div>
-    <div class="big">${esc(pname(puz.murderer))} es ${CONTENT.charMap[puz.persons[puz.murderer]].g === 'f' ? 'la asesina' : 'el asesino'}</div>
+    <div class="big">${esc(tr('isMurderer', { n: pname(puz.murderer), f: CONTENT.charMap[puz.persons[puz.murderer]].g === 'f' }))}</div>
     <p>${esc(storyText())}</p>
-    <div class="stats"><span class="tag brass">⏱ ${fmtTime(G.time)}</span><span class="tag">💡 ${G.hints} pista${G.hints === 1 ? '' : 's'}</span><span class="tag">✔︎ ${G.checks} revisión${G.checks === 1 ? '' : 'es'}</span>${G.wrong ? `<span class="tag">❌ ${G.wrong} fallo${G.wrong === 1 ? '' : 's'}</span>` : ''}</div>
+    <div class="stats"><span class="tag brass">⏱ ${fmtTime(G.time)}</span><span class="tag">${tr('statHints', { n: G.hints })}</span><span class="tag">${tr('statChecks', { n: G.checks })}</span>${G.wrong ? `<span class="tag">${tr('statWrong', { n: G.wrong })}</span>` : ''}</div>
     <div class="stack">
-      <button class="btn" data-act="share">Compartir resultado</button>
-      ${nextDiff ? `<button class="btn ghost" data-act="daily" data-key="${key}" data-diff="${nextDiff}">Siguiente: ${esc(DIFFICULTIES[nextDiff].label)} del ${esc(fmtDayShort(key))}</button>` : ''}
-      <button class="btn ghost" data-act="archive" data-ym="${(key || todayKey()).slice(0, 7)}">📅 Archivo de casos</button>
-      <button class="btn ghost" data-act="home">Volver al inicio</button>
+      <button class="btn" data-act="share">${tr('share')}</button>
+      ${nextDiff ? `<button class="btn ghost" data-act="daily" data-key="${key}" data-diff="${nextDiff}">${esc(tr('nextCase', { d: dName(nextDiff), day: fmtDayShort(key) }))}</button>` : ''}
+      <button class="btn ghost" data-act="archive" data-ym="${(key || todayKey()).slice(0, 7)}">${tr('archiveShort')}</button>
+      <button class="btn ghost" data-act="home">${tr('backHome')}</button>
     </div>
-    <p class="hint" style="margin-top:12px">${esc(num)} · ${esc(dLabel(puz.diff))}${streak() ? ` · 🔥 racha de ${streak()}` : ''}</p>
+    <p class="hint" style="margin-top:12px">${esc(num)} · ${esc(dLabel(puz.diff))}${streak() ? ` · ${tr('streakOf', { n: streak() })}` : ''}</p>
   </div>`);
 }
 async function shareResult() {
   const puz = G.puz;
-  const num = G.dailyKey ? `Caso #${caseNumber(G.dailyKey)} (${fmtDayShort(G.dailyKey)})` : 'Caso libre';
-  const text = `${CONTENT.GAME.title} · ${num} · ${dLabel(puz.diff)}\n✅ Resuelto en ${fmtTime(G.time)} · 💡 ${G.hints} · ✔︎ ${G.checks}`;
+  const num = G.dailyKey ? `${tr('caseN', { n: caseNumber(G.dailyKey) })} (${fmtDayShort(G.dailyKey)})` : tr('freeCase');
+  const text = tr('shareText', { title: CONTENT.GAME.title, num, diff: dLabel(puz.diff), t: fmtTime(G.time), h: G.hints, c: G.checks });
   try {
     if (navigator.share) await navigator.share({ text });
-    else { await navigator.clipboard.writeText(text); toast('Resultado copiado'); }
+    else { await navigator.clipboard.writeText(text); toast(tr('copied')); }
   } catch (e) { /* cancelado */ }
 }
 
 function openHowto() {
-  openSheet('Cómo se juega', `
-    <p>En plena boda, <b>${esc(CONTENT.charMap[CONTENT.GAME.victim] ? CONTENT.charMap[CONTENT.GAME.victim].name : 'el novio')}</b> ha aparecido sin vida en algún rincón de la finca. Todos los personajes, <b>incluida la víctima</b>, están en el plano. Colócalos a todos y descubre quién estuvo a solas con él.</p>
-    <h4>Las reglas</h4>
-    <ul>
-      <li>Hay exactamente <b>una persona por fila y una por columna</b>.</li>
-      <li>Nadie puede estar en una casilla con un <b>obstáculo</b> (mesas, plantas, pianos, armarios…): aparecen oscurecidas. Sí se puede estar <b>sobre</b> sillas, sillones, sofás, camas, bancos o alfombras.</li>
-      <li>Las pistas son siempre <b>verdaderas</b>.</li>
-      <li>La víctima estaba <b>a solas con el asesino</b>: en su habitación solo había otra persona.</li>
-    </ul>
-    <h4>Cómo se marca</h4>
-    <ul>
-      <li><b>Colocar:</b> toca un personaje y luego su casilla. Tocar otra vez la misma casilla lo quita.</li>
-      <li><b>${uiImg('lapiz')} Lápiz:</b> con un personaje elegido, anota dónde <i>podría</i> estar. Tocar de nuevo borra la marca. Las marcas se conservan debajo de una solución y reaparecen si la quitas.</li>
-      <li><b>${uiImg('vacio')} Vacía:</b> oscurece casillas donde estás seguro de que no hay nadie.</li>
-      <li><b>${uiImg('goma')} Borrar:</b> vacía por completo cada casilla que toques.</li>
-      <li>Las filas y columnas de cada solución se oscurecen solas; si dos soluciones chocan o repites personaje, se marcan en <b style="color:#ff8b7d">rojo</b>.</li>
-      <li>Toca una pista para ver en el plano a qué se refiere; con ✓ la tachas.</li>
-    </ul>
-    <h4>Para leer las pistas</h4>
-    <ul>
-      <li><b>Al lado de</b>: casilla contigua (arriba, abajo, izquierda o derecha) <u>dentro de la misma habitación</u>. Una pared de por medio no cuenta, y las diagonales tampoco.</li>
-      <li>Las <b>puertas y ventanas</b> están en los muros: «junto a una ventana» es estar en una casilla que toca ese muro.</li>
-      <li><b>Arriba, abajo, izquierda y derecha</b> se refieren al plano tal como lo ves.</li>
-      <li>«Junto a la planta» habla de la única planta del plano. Si hay varias, la pista dice «junto a <b>una de las</b> plantas»: vale cualquiera de ellas (al tocar la pista se iluminan todas).</li>
-      <li>«En la misma fila que el piano»: en esa fila está el piano, en cualquier habitación.</li>
-    </ul>
-    <button class="btn" data-act="close-sheet">¡A investigar!</button>`);
+  const v = CONTENT.charMap[CONTENT.GAME.victim] ? CONTENT.charMap[CONTENT.GAME.victim].name : '';
+  openSheet(tr('howto'), tr('howtoBody', { v: esc(v), ic: { lapiz: uiImg('lapiz'), vacio: uiImg('vacio'), goma: uiImg('goma') } }) + `
+    <button class="btn" data-act="close-sheet">${tr('letsGo')}</button>`);
 }
 
 function openSettings() {
   const row = (k, t, sub) => `<div class="row"><div>${t}<small>${sub}</small></div><button class="switch${settings[k] ? ' on' : ''}" data-act="toggle" data-k="${k}" aria-label="${t}"></button></div>`;
-  openSheet('Ajustes', `
-    ${row('rowcol', 'Oscurecer filas y columnas ocupadas', 'Al colocar a alguien, su fila y columna se oscurecen.')}
-    ${row('conflicts', 'Marcar conflictos', 'Borde rojo si dos soluciones comparten fila o columna, o si repites personaje.')}
-    ${row('timer', 'Mostrar el cronómetro', 'El tiempo se sigue contando aunque lo ocultes.')}
-    ${row('vibrate', 'Vibración', 'Respuesta háptica al tocar (si tu móvil lo permite).')}
-    ${isIOS() && !canFullscreen() ? '' : row('autofs', 'Pantalla completa automática', 'En móviles, al empezar un caso.')}
+  openSheet(tr('settings'), `
+    ${row('rowcol', tr('sRowcol'), tr('sRowcolSub'))}
+    ${row('conflicts', tr('sConf'), tr('sConfSub'))}
+    ${row('timer', tr('sTimer'), tr('sTimerSub'))}
+    ${row('vibrate', tr('sVib'), tr('sVibSub'))}
+    ${isIOS() && !canFullscreen() ? '' : row('autofs', tr('sFs'), tr('sFsSub'))}
     <div class="stack" style="margin-top:16px">
-      <button class="btn ghost" data-act="sprites">Galería de sprites</button>
-      <button class="btn ghost" data-act="howto">Cómo se juega</button>
-      <button class="btn ghost" data-act="reset" style="color:#ff9c8f">Borrar todo el progreso</button>
+      <button class="btn ghost" data-act="lang">🌐 ${tr('language')}: ${LANGS.find((l) => l.id === getLang()).name}</button>
+      <button class="btn ghost" data-act="sprites">${tr('sprites')}</button>
+      <button class="btn ghost" data-act="howto">${tr('howto')}</button>
+      <button class="btn ghost" data-act="reset" style="color:#ff9c8f">${tr('reset')}</button>
     </div>`);
 }
 
@@ -955,12 +940,12 @@ function openSprites() {
     const have = list.filter((x) => has(x.kind, x.id)).length;
     return `<h4>${title} <small style="color:var(--muted);font-weight:400">${have}/${list.length}</small></h4><div class="gallery">${list.map((x) => tile(x.kind, x.id, x.fb, x.label, x.note)).join('')}</div>`;
   };
-  const shapeNote = (it) => (it.shape === 'pair' ? '2×1' : it.shape === 'area' ? 'baldosa' : '') + (it.walk ? ' · se pisa' : '');
-  openSheet('Galería de sprites', `
-    <p class="hint">Los que aparecen en gris aún usan un dibujo provisional. Deja el PNG con ese nombre en su carpeta y se usará solo.</p>
-    ${sec('Personajes · sprites/characters/', CONTENT.CHARACTERS.map((c) => ({ kind: 'characters', id: c.id, fb: `<span class="badge" style="--c:${c.color};width:40px;height:40px;font-size:18px">${c.mark}</span>`, label: c.id + '.png' })))}
-    ${sec('Muebles · sprites/items/', CONTENT.ITEMS.map((it) => ({ kind: 'items', id: it.id, fb: itemIcon(it.id), label: it.id + '.png', note: shapeNote(it) })))}
-    ${sec('Suelos · sprites/floors/', CONTENT.ROOM_TYPES.map((r) => ({ kind: 'floors', id: r.id, fb: `<span class="em sw" style="background:${r.color}"></span>`, label: r.id + '.png' })))}`);
+  const shapeNote = (it) => (it.shape === 'pair' ? '2×1' : it.shape === 'area' ? tr('galTile') : '') + (it.walk ? ' · ' + tr('galWalk') : '');
+  openSheet(tr('sprites'), `
+    <p class="hint">${tr('galHint')}</p>
+    ${sec(tr('galChars') + ' · sprites/characters/', CONTENT.CHARACTERS.map((c) => ({ kind: 'characters', id: c.id, fb: `<span class="badge" style="--c:${c.color};width:40px;height:40px;font-size:18px">${c.mark}</span>`, label: c.id + '.png' })))}
+    ${sec(tr('galItems') + ' · sprites/items/', CONTENT.ITEMS.map((it) => ({ kind: 'items', id: it.id, fb: itemIcon(it.id), label: it.id + '.png', note: shapeNote(it) })))}
+    ${sec(tr('galFloors') + ' · sprites/floors/', CONTENT.ROOM_TYPES.map((r) => ({ kind: 'floors', id: r.id, fb: `<span class="em sw" style="background:${r.color}"></span>`, label: r.id + '.png' })))}`);
 }
 
 // ------------------------------------------------------------ Eventos
@@ -979,6 +964,14 @@ document.addEventListener('click', (e) => {
     case 'fullscreen': return toggleFullscreen(false);
     case 'ios-install': return openIosInstall();
     case 'close-sheet': return closeSheet();
+    case 'lang': {
+      setLang(nextLang());
+      const inSettings = sheetOpen();
+      renderHome();
+      if (G && $('#screen-play').classList.contains('on')) renderPlayShell();
+      if (inSettings) openSettings();
+      return;
+    }
     case 'toggle': {
       const k = el.dataset.k; settings[k] = !settings[k]; saveSettings();
       el.classList.toggle('on', settings[k]);
@@ -986,7 +979,7 @@ document.addEventListener('click', (e) => {
       return;
     }
     case 'reset':
-      if (confirm('¿Borrar todos los casos y estadísticas de este dispositivo?')) {
+      if (confirm(tr('resetConfirm'))) {
         Object.keys(localStorage).filter((k) => k.startsWith('mdk.save.') || k === 'mdk.stats' || k === 'mdk.saves' || k === 'mdk.current').forEach((k) => localStorage.removeItem(k));
         stats = { solved: {}, daily: {} }; G = null; closeSheet(); renderHome(); show('home');
       }
@@ -1031,6 +1024,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 // ----------------------------------------------------------------- Inicio
 (async function init() {
+  document.documentElement.lang = getLang();
   await probeSprites();
   renderHome();
   show('home');

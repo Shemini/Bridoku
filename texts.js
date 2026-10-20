@@ -1,4 +1,6 @@
-// Redacción de las pistas en español. Devuelve "fichas" (tokens) que la interfaz
+import { getLang } from './i18n.js';
+
+// Redacción de las pistas (español e inglés). Devuelve "fichas" (tokens) que la interfaz
 // dibuja con colores/sprites, y una versión en texto plano para pruebas.
 
 const P = (i) => ({ k: 'p', i });
@@ -18,10 +20,10 @@ const LINE_TXT = {
 };
 
 export function clueTokens(c, puz, content) {
-  const toks = clueTokens0(c, puz, content);
+  const toks = getLang() === 'en' ? clueTokensEn(c, puz, content) : clueTokens0(c, puz, content);
   const counts = {};
   for (const ob of puz.objs || []) counts[ob.t] = (counts[ob.t] || 0) + 1;
-  for (const t of toks) if (t.k === 'item' && t.ref) t.n = counts[t.id] || 1;
+  for (const t of toks) if (t.k === 'item' && (t.ref || t.eref)) t.n = counts[t.id] || 1;
   return toks;
 }
 
@@ -265,6 +267,10 @@ export function clueRefs(c) {
 
 export function roomText(r, puz, content, o = {}) {
   const t = content.roomTypeMap[puz.roomTypes[r]];
+  if (getLang() === 'en') {
+    const s = (o.inp ? ((t.en && t.en.prep) || 'in') + ' ' : '') + 'the ' + (t.en ? t.en.name : t.name);
+    return o.cap ? s[0].toUpperCase() + s.slice(1) : s;
+  }
   let s = o.de ? (t.art === 'el' ? 'del ' + t.name : 'de la ' + t.name) : t.art + ' ' + t.name;
   if (o.cap) s = s[0].toUpperCase() + s.slice(1);
   return s;
@@ -293,6 +299,7 @@ export function pluralName(it) {
 export function itemText(id, content, o = {}) {
   const it = content.itemMap[id];
   if (!it) return id;
+  if (getLang() === 'en') return itemTextEn(it, o);
   if (o.bare) return it.name;
   if (o.any) return (it.det === 'una' ? 'ninguna ' : 'ningún ') + it.name;
   if (o.ref) {
@@ -305,11 +312,16 @@ export function itemText(id, content, o = {}) {
   return it.det + ' ' + it.name;
 }
 export function openingText(t) {
+  if (getLang() === 'en') {
+    const b = t.k === 'win' ? 'window' : 'door';
+    return t.plural ? b + 's' : t.bare ? b : 'a ' + b;
+  }
   const base = t.k === 'win' ? 'ventana' : 'puerta';
   if (t.plural) return base + 's';
   if (t.bare) return base;
   return 'una ' + base;
 }
+export function roomLabel(type) { return getLang() === 'en' && type.en ? type.en.label : type.label; }
 export function personName(i, puz, content) { return content.charMap[puz.persons[i]].name; }
 
 export function tokensToText(tokens, puz, content) {
@@ -322,4 +334,191 @@ export function tokensToText(tokens, puz, content) {
       default: return t.s;
     }
   }).join('');
+}
+
+// ---------------------------------------------------------------- English
+const NUM_EN = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+const ROWS_EN = ['', 'one row', 'two rows'];
+const COLS_EN = ['', 'one column', 'two columns'];
+const LINE_EN = {
+  N: 'in the top row', S: 'in the bottom row',
+  W: 'in the leftmost column', E: 'in the rightmost column',
+};
+
+function clueTokensEn(c, puz, content) {
+  const v = c.v || 0;
+  const pick = (arr) => arr[v % arr.length];
+  const isV = (i) => i === puz.victim;
+  const g = (i) => content.charMap[puz.persons[i]].g;
+  const his = (i) => (g(i) === 'f' ? 'her' : 'his');
+  const item = (id) => content.itemMap[id];
+  const onEn = (id) => (item(id).en && item(id).en.on) || 'on';
+  const REF = (id) => IT(id, { eref: true });          // "the plant" / "one of the plants"
+  const ANY = (id) => IT(id, { any: true });           // "any plant"
+
+  switch (c.t) {
+    case 'IN_ROOM':
+      if (isV(c.a)) return pick([
+        [P(c.a), T("'s body was found "), RM(c.r, { inp: true }), T('.')],
+        [P(c.a), T(' was found dead '), RM(c.r, { inp: true }), T('.')],
+        [T('The victim, '), P(c.a), T(', lay '), RM(c.r, { inp: true }), T('.')]]);
+      return pick([
+        [P(c.a), T(' was '), RM(c.r, { inp: true }), T('.')],
+        [T('Someone saw '), P(c.a), T(' '), RM(c.r, { inp: true }), T('.')],
+        [P(c.a), T(' never left '), RM(c.r), T('.')]]);
+    case 'NOT_IN_ROOM':
+      return pick([
+        [P(c.a), T(' was not '), RM(c.r, { inp: true }), T('.')],
+        [T('Nobody saw '), P(c.a), T(' '), RM(c.r, { inp: true }), T('.')],
+        [P(c.a), T(' never set foot '), RM(c.r, { inp: true }), T('.')]]);
+    case 'ON':
+      return pick([
+        [P(c.a), T(` was ${onEn(c.k)} `), IT(c.k), T('.')],
+        [P(c.a), T(` was found ${onEn(c.k)} `), IT(c.k), T('.')]]);
+    case 'NOT_ON':
+      return pick([
+        [P(c.a), T(` was not ${onEn(c.k)} `), IT(c.k), T('.')],
+        [T('Nobody saw '), P(c.a), T(` ${onEn(c.k)} `), IT(c.k), T('.')]]);
+    case 'FLOOR':
+      return pick([
+        [P(c.a), T(' was standing on the bare floor, with no furniture or rug underfoot.')],
+        [P(c.a), T(' was not on any furniture or rug.')]]);
+    case 'NOT_FLOOR':
+      return [P(c.a), T(' was on a piece of furniture or a rug.')];
+    case 'BESIDE':
+      return pick([
+        [P(c.a), T(' was next to '), REF(c.k), T('.')],
+        [P(c.a), T(' was right beside '), REF(c.k), T('.')]]);
+    case 'NOT_BESIDE':
+      return pick([
+        [P(c.a), T(' was not next to '), ANY(c.k), T('.')],
+        [T('There was no '), IT(c.k, { bare: true }), T(' next to '), P(c.a), T('.')]]);
+    case 'BESIDE_WIN':
+      return pick([
+        [P(c.a), T(' was by '), WIN, T('.')],
+        [P(c.a), T(' was looking out of '), WIN, T('.')]]);
+    case 'NOT_BESIDE_WIN':
+      return [P(c.a), T(' was not by any '), { k: 'win', bare: true }, T('.')];
+    case 'BESIDE_DOOR':
+      return pick([
+        [P(c.a), T(' was by '), DOOR, T('.')],
+        [P(c.a), T(' was keeping an eye on '), DOOR, T('.')]]);
+    case 'NOT_BESIDE_DOOR':
+      return [P(c.a), T(' was not by any '), { k: 'door', bare: true }, T('.')];
+    case 'ROW_HAS':
+      return pick([
+        [P(c.a), T(' was in the same row as '), REF(c.k), T('.')],
+        [T('There was '), IT(c.k), T(' in '), P(c.a), T("'s row.")]]);
+    case 'NOT_ROW_HAS':
+      return [T('There was no '), IT(c.k, { bare: true }), T(' in '), P(c.a), T("'s row.")];
+    case 'COL_HAS':
+      return pick([
+        [P(c.a), T(' was in the same column as '), REF(c.k), T('.')],
+        [T('There was '), IT(c.k), T(' in '), P(c.a), T("'s column.")]]);
+    case 'NOT_COL_HAS':
+      return [T('There was no '), IT(c.k, { bare: true }), T(' in '), P(c.a), T("'s column.")];
+    case 'LINE':
+      return [P(c.a), T(' was ' + LINE_EN[c.side] + '.')];
+    case 'ON_EDGE':
+      return pick([
+        [P(c.a), T(' was against an outside wall.')],
+        [P(c.a), T(' was on the edge of the map.')]]);
+    case 'NOT_EDGE':
+      return pick([
+        [P(c.a), T(' was not against any outside wall.')],
+        [P(c.a), T(' was not on the edge of the map.')]]);
+    case 'ALONE':
+      return pick([
+        [P(c.a), T(` was alone in ${his(c.a)} room.`)],
+        [T('Nobody else was in '), P(c.a), T("'s room.")]]);
+    case 'NOT_ALONE':
+      return pick([
+        [P(c.a), T(' was not alone.')],
+        [P(c.a), T(' was sharing a room with someone.')]]);
+    case 'SAME_ROOM':
+      return pick([
+        [P(c.a), T(' and '), P(c.b), T(' were in the same room.')],
+        [P(c.a), T(' was sharing a room with '), P(c.b), T('.')]]);
+    case 'DIFF_ROOM':
+      return pick([
+        [P(c.a), T(' and '), P(c.b), T(' were in different rooms.')],
+        [P(c.a), T(' was not in the same room as '), P(c.b), T('.')]]);
+    case 'ALONE_WITH':
+      return pick([
+        [P(c.a), T(' was alone with '), P(c.b), T('.')],
+        [T('Only '), P(c.a), T(' and '), P(c.b), T(' were in that room.')]]);
+    case 'DIAG':
+      return [P(c.a), T(' and '), P(c.b), T(' were diagonal to each other, touching at a corner.')];
+    case 'NOT_DIAG':
+      return [P(c.a), T(' and '), P(c.b), T(' were not diagonal to each other.')];
+    case 'NORTH':
+      return pick([
+        [P(c.a), T(' was higher up the map than '), P(c.b), T('.')],
+        [P(c.b), T(' was lower down the map than '), P(c.a), T('.')]]);
+    case 'WEST':
+      return pick([
+        [P(c.a), T(' was further left than '), P(c.b), T(' on the map.')],
+        [P(c.b), T(' was further right than '), P(c.a), T(' on the map.')]]);
+    case 'ROW_OFF':
+      return pick([
+        [P(c.a), T(` was exactly ${ROWS_EN[c.k]} above `), P(c.b), T('.')],
+        [P(c.b), T(` was exactly ${ROWS_EN[c.k]} below `), P(c.a), T('.')]]);
+    case 'COL_OFF':
+      return pick([
+        [P(c.a), T(` was exactly ${COLS_EN[c.k]} to the left of `), P(c.b), T('.')],
+        [P(c.b), T(` was exactly ${COLS_EN[c.k]} to the right of `), P(c.a), T('.')]]);
+    case 'ROOM_COUNT':
+      if (c.n === 0) return pick([
+        [T('There was nobody '), RM(c.r, { inp: true }), T('.')],
+        [RM(c.r, { cap: true }), T(' was empty.')]]);
+      if (c.n === 1) return [T('There was exactly one person '), RM(c.r, { inp: true }), T('.')];
+      return [T(`There were exactly ${NUM_EN[c.n]} people `), RM(c.r, { inp: true }), T('.')];
+    case 'ROOM_GT':
+      return [T('There were more people '), RM(c.r, { inp: true }), T(' than '), RM(c.r2, { inp: true }), T('.')];
+    case 'ROOM_EQ':
+      return [T('There were as many people '), RM(c.r, { inp: true }), T(' as '), RM(c.r2, { inp: true }), T('.')];
+    case 'EMPTY_ROOMS':
+      if (c.n === 0) return [T('No room was left empty.')];
+      if (c.n === 1) return [T('Exactly one room was left empty.')];
+      return [T(`Exactly ${NUM_EN[c.n]} rooms were left empty.`)];
+    case 'NOBODY_ON':
+      return [T(`Nobody was ${onEn(c.k)} `), IT(c.k), T('.')];
+    case 'ONLY_ON':
+      return pick([
+        [P(c.a), T(` was the only person ${onEn(c.k)} `), IT(c.k), T('.')],
+        [T('Only '), P(c.a), T(` was ${onEn(c.k)} `), IT(c.k), T('.')]]);
+    case 'CRIME_HAS':
+      return pick([
+        [T('There was '), IT(c.k), T(' in the room where the body was found.')],
+        [T('The crime scene had '), IT(c.k), T(' in it.')]]);
+    case 'CRIME_NOT_HAS':
+      return [T('There was no '), IT(c.k, { bare: true }), T(' in the room where the body was found.')];
+    case 'CRIME_WIN':
+      return [T('The room where the crime happened had a '), { k: 'win', bare: true }, T('.')];
+    case 'CRIME_NOWIN':
+      return [T('The room where the crime happened had no '), { k: 'win', plural: true }, T('.')];
+    default:
+      return [T(c.t)];
+  }
+}
+
+const an = (w) => (/^[aeiou]/i.test(w) ? 'an ' : 'a ');
+function pluralWordEn(w) {
+  if (/(s|x|z|ch|sh)$/i.test(w)) return w + 'es';
+  if (/[^aeiou]y$/i.test(w)) return w.slice(0, -1) + 'ies';
+  return w + 's';
+}
+function pluralNameEn(en) {
+  if (en.plural) return en.plural;
+  const words = en.name.split(' ');
+  const cut = words.findIndex((w) => w === 'of' || w === 'with');
+  const head = cut > 0 ? cut - 1 : words.length - 1;
+  return words.map((w, i) => (i === head ? pluralWordEn(w) : w)).join(' ');
+}
+function itemTextEn(it, o) {
+  const en = it.en || { name: it.name };
+  if (o.bare) return en.name;
+  if (o.any) return 'any ' + en.name;
+  if (o.eref) return (o.n || 1) > 1 ? 'one of the ' + pluralNameEn(en) : 'the ' + en.name;
+  return an(en.name) + en.name;
 }
