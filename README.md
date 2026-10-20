@@ -46,7 +46,7 @@ Los sprites son archivos **PNG** que dejas en la carpeta `sprites/`. **No hay qu
 | `sprites/items/` | Muebles, vistos desde arriba | `cama.png`, `silla.png`, `mesa.png` |
 | `sprites/floors/` | Suelo de cada tipo de habitación (baldosa) | `cocina.png` |
 
-La lista completa de nombres, con la forma de cada mueble, está en **`sprites/LISTA.md`**. Dentro del juego, **Ajustes → Galería de sprites** muestra cuáles faltan.
+La lista completa de nombres, con la forma de cada mueble, está en **`sprites/LISTA.md`**.
 
 **Formas de los muebles** (importante para dibujarlos):
 

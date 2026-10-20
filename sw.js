@@ -1,7 +1,7 @@
 // Service worker: permite jugar sin conexión.
 // Código (html/js/css): red primero y, si no hay red, lo guardado.
 // Sprites e iconos: se sirven al instante desde la caché y se actualizan en segundo plano.
-const CACHE = 'bridoku-v11';
+const CACHE = 'bridoku-v12';
 const CORE = ['./', 'index.html', 'style.css', 'theme-bridoku.css', 'fonts/pixelify-sans-latin-400-normal.woff2', 'fonts/pixelify-sans-latin-700-normal.woff2', 'app.js', 'engine.js', 'content.js', 'texts.js', 'i18n.js', 'worker.js', 'novia-walker.js', 'sprites/walker/sheet.png',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png', 'icons/icon-maskable-512.png'];
 

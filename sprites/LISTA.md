@@ -1,6 +1,6 @@
 # Lista de sprites (Bridoku)
 
-Generada a partir de `content.js`. Dentro del juego, **Ajustes → Galería de sprites** muestra cuáles ya están puestos.
+Generada a partir de `content.js`.
 
 Todos en PNG. Fondo transparente salvo los suelos. Tamaño base recomendado: 32×32 por casilla.
 

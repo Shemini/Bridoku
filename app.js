@@ -324,9 +324,9 @@ function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 function needsFsHint() {
-  if (isStandalone()) return '';
-  if (isIOS() && !canFullscreen()) return `<button class="link" data-act="ios-install">${tr('fsIos')}</button>`;
+  // Mismo enlace corto en todos los móviles; en iPhone abre las instrucciones para instalarla.
   if (canFullscreen()) return `<button class="link" data-act="fullscreen">${tr('fsBtn')}</button>`;
+  if (isIOS() && !isStandalone()) return `<button class="link" data-act="ios-install">${tr('fsBtn')}</button>`;
   return '';
 }
 function openIosInstall() {
@@ -920,25 +920,11 @@ function openSettings() {
     ${isIOS() && !canFullscreen() ? '' : row('autofs', tr('sFs'), tr('sFsSub'))}
     <div class="stack" style="margin-top:16px">
       <button class="btn ghost" data-act="lang">🌐 ${tr('language')}: ${LANGS.find((l) => l.id === getLang()).name}</button>
-      <button class="btn ghost" data-act="sprites">${tr('sprites')}</button>
       <button class="btn ghost" data-act="howto">${tr('howto')}</button>
       <button class="btn ghost" data-act="reset" style="color:#ff9c8f">${tr('reset')}</button>
     </div>`);
 }
 
-function openSprites() {
-  const tile = (kind, id, fallback, label, note) => `<div class="gal ${has(kind, id) ? 'ok' : 'miss'}"><div class="box">${has(kind, id) ? `<img class="sp" src="${spUrl(kind, id)}" alt="">` : fallback}</div>${esc(label)}${note ? `<small>${esc(note)}</small>` : ''}</div>`;
-  const sec = (title, list) => {
-    const have = list.filter((x) => has(x.kind, x.id)).length;
-    return `<h4>${title} <small style="color:var(--muted);font-weight:400">${have}/${list.length}</small></h4><div class="gallery">${list.map((x) => tile(x.kind, x.id, x.fb, x.label, x.note)).join('')}</div>`;
-  };
-  const shapeNote = (it) => (it.shape === 'pair' ? '2×1' : it.shape === 'area' ? tr('galTile') : '') + (it.walk ? ' · ' + tr('galWalk') : '');
-  openSheet(tr('sprites'), `
-    <p class="hint">${tr('galHint')}</p>
-    ${sec(tr('galChars') + ' · sprites/characters/', CONTENT.CHARACTERS.map((c) => ({ kind: 'characters', id: c.id, fb: `<span class="badge" style="--c:${c.color};width:40px;height:40px;font-size:18px">${c.mark}</span>`, label: c.id + '.png' })))}
-    ${sec(tr('galItems') + ' · sprites/items/', CONTENT.ITEMS.map((it) => ({ kind: 'items', id: it.id, fb: itemIcon(it.id), label: it.id + '.png', note: shapeNote(it) })))}
-    ${sec(tr('galFloors') + ' · sprites/floors/', CONTENT.ROOM_TYPES.map((r) => ({ kind: 'floors', id: r.id, fb: `<span class="em sw" style="background:${r.color}"></span>`, label: r.id + '.png' })))}`);
-}
 
 // ------------------------------------------------------------ Eventos
 document.addEventListener('click', (e) => {
@@ -952,7 +938,6 @@ document.addEventListener('click', (e) => {
     case 'home': return goHome(false);
     case 'howto': return openHowto();
     case 'settings': return openSettings();
-    case 'sprites': return openSprites();
     case 'fullscreen': return toggleFullscreen(false);
     case 'ios-install': return openIosInstall();
     case 'close-sheet': return closeSheet();
