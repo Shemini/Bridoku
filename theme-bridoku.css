@@ -214,6 +214,12 @@ img.ui { width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em
 .obj.t-alfombra.sprite { --rim: #e07a9a; }
 .obj.table.sprite.hl, .obj.carpet.sprite.hl { outline: 3px solid #f7d66a; outline-offset: 0; }
 
+/* ---- Novia caminante en la pantalla de carga ---- */
+.loading { overflow: hidden; }
+.loading-card { position: relative; width: 100%; background: #f6efdc; padding: 18px 12px 20px;
+  border-top: 3px solid #4a3550; border-bottom: 3px solid #4a3550; }
+.walker-lane { position: absolute; left: 0; right: 0; bottom: calc(100% + 3px); height: 340px; overflow: hidden; pointer-events: none; }
+
 /* ---------------------------------------------- app instalada (iPhone y Android) */
 /* Con "black-translucent" el juego ocupa también la zona de la barra de estado:
    esta franja hace legible la hora y la batería (texto blanco del sistema). */

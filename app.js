@@ -173,10 +173,13 @@ async function generate(diff, seed) {
 const LOAD_MSGS = ['Investigando el caso…', 'Interrogando a los invitados…', 'Repasando el seating plan…', 'Comprobando coartadas…', 'Revisando las fotos del photocall…', 'Cerrando las puertas de la finca…'];
 async function withLoading(fn) {
   const el = $('#loading'), tx = $('#loading-text');
-  let i = 0;
-  const show = setTimeout(() => { el.classList.add('on'); tx.textContent = LOAD_MSGS[0]; }, 250);
+  let i = 0, walker = null;
+  const show = setTimeout(() => {
+    el.classList.add('on'); tx.textContent = LOAD_MSGS[0];
+    import('./novia-walker.js').then((m) => { if (el.classList.contains('on') && !walker) walker = m.noviaWalker($('#walker-lane')); }).catch(() => {});
+  }, 250);
   const cyc = setInterval(() => { i = (i + 1) % LOAD_MSGS.length; tx.textContent = LOAD_MSGS[i]; }, 1800);
-  try { return await fn(); } finally { clearTimeout(show); clearInterval(cyc); el.classList.remove('on'); }
+  try { return await fn(); } finally { clearTimeout(show); clearInterval(cyc); el.classList.remove('on'); if (walker) { walker.stop(); walker = null; } }
 }
 
 // --------------------------------------------------------- Guardar / cargar
