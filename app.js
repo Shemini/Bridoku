@@ -238,16 +238,11 @@ function renderHome() {
       <p>${esc(tr('subtitle'))}</p>
     </div>
 
-    <div class="walker-stage" aria-hidden="true"><div id="walker-lane" class="walker-lane"></div><div class="walker-ground"></div></div>
+    <div class="walker-stage" aria-hidden="true"><div id="walker-lane" class="walker-lane"></div></div>
 
     <div class="card daily">
-      <div class="tagrow">
-        <span class="tag brass">${tr('todayCases')}</span>
-        <span class="tag">#${caseNumber(today)}</span>
-        ${st > 0 ? `<span class="tag ok">${tr('streak', { n: st })}</span>` : ''}
-      </div>
+      ${st > 0 ? `<div class="tagrow"><span class="tag ok">${tr('streak', { n: st })}</span></div>` : ''}
       <h3>${esc(cap1(fmtDay(today)))}</h3>
-      <div class="meta">${tr('todayInfo')}</div>
       ${dayButtons(today)}
     </div>
 
@@ -257,10 +252,10 @@ function renderHome() {
 
     <button class="btn ghost" data-act="archive">${tr('archiveBtn')}</button>
 
-    ${needsFsHint()}
     <div class="linkrow">
       <button class="link" data-act="howto">${tr('howto')}</button>
       <button class="link" data-act="settings">${tr('settings')}</button>
+      ${needsFsHint()}
     </div>
     <div class="fine">${tr('fine')}</div>
   </div>`;
@@ -275,7 +270,7 @@ function startWalker() {
   if (!lane || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   import('./novia-walker.js').then((m) => {
     if (!lane.isConnected || !$('#screen-home').classList.contains('on')) return;
-    stopWalker(); walker = m.noviaWalker(lane, { scale: 2 });
+    stopWalker(); walker = m.noviaWalker(lane, { scale: 1 });
   }).catch(() => {});
 }
 
@@ -330,8 +325,8 @@ function isIOS() {
 }
 function needsFsHint() {
   if (isStandalone()) return '';
-  if (isIOS() && !canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="ios-install">${tr('fsIos')}</button>`;
-  if (canFullscreen()) return `<button class="btn ghost small" style="align-self:center" data-act="fullscreen">${tr('fsBtn')}</button>`;
+  if (isIOS() && !canFullscreen()) return `<button class="link" data-act="ios-install">${tr('fsIos')}</button>`;
+  if (canFullscreen()) return `<button class="link" data-act="fullscreen">${tr('fsBtn')}</button>`;
   return '';
 }
 function openIosInstall() {
