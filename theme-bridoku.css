@@ -269,3 +269,19 @@ img.ui { width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em
   .card.daily .diffgrid { margin-top: 6px; }
   .fine { display: none; }
 }
+
+/* ---- Pantalla de puzle: todos los personajes en una fila y ventana inicial del caso ---- */
+.tray { display: flex; flex-wrap: nowrap; overflow: visible; gap: 4px; justify-content: center; padding: 8px 10px 4px; }
+.tray .chip { flex: 1 1 0; width: auto; min-width: 0; max-width: 64px; margin: 3px 0 5px; padding: 4px 0 5px; container-type: inline-size; }
+.tray .chip .av, .tray .chip .badge { width: min(36px, 72cqw); height: min(36px, 72cqw); font-size: min(22px, 44cqw); }
+.tray .chip span { font-size: clamp(7px, 17cqw, 11px); }
+.tray .chip.vic::before { width: 12px; height: 12px; left: 1px; top: 0; }
+.topbar .ttl { cursor: pointer; }
+.intro-bg { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(74,53,80,.55); }
+.intro-card { width: 100%; max-width: 340px; background: #fdf6e3; color: #4a3550; text-align: center; padding: 22px 20px 20px;
+  box-shadow: var(--px), inset 0 -4px 0 0 #efe3c4; font-family: var(--sans); }
+.intro-card .intro-av .av, .intro-card .intro-av .badge { width: 72px; height: 72px; font-size: 40px; margin: 0 auto; }
+.intro-card h2 { margin: 10px 0 0; font-family: var(--serif); font-size: 22px; }
+.intro-card small { display: block; color: var(--muted); letter-spacing: .04em; margin-bottom: 12px; }
+.intro-card p { margin: 0 0 16px; font-size: 16px; line-height: 1.5; }
+.intro-card b { color: #b84a72; }

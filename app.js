@@ -371,7 +371,28 @@ async function openGame(id, makeFn, kind, dailyKey) {
   if (!H.stack.includes('play')) hPush('play');
   saveGame();
   if (G.status === 'solved') openVictory(true);
-  else if (!settings.seenHowto) { settings.seenHowto = true; saveSettings(); setTimeout(openHowto, 350); }
+  else {
+    const afterIntro = () => { if (!settings.seenHowto) { settings.seenHowto = true; saveSettings(); setTimeout(openHowto, 350); } };
+    if (placedCount(G) === 0 && G.time < 3) setTimeout(() => openIntro(afterIntro), 250); else afterIntro();
+  }
+}
+// Ventana inicial del caso: la historia, con un botón para continuar. Se puede reabrir tocando el título.
+function openIntro(after) {
+  if ($('#intro')) return;
+  const puz = G.puz, v = puz.victim, vc = CONTENT.charMap[puz.persons[v]];
+  const num = G.dailyKey ? tr('caseN', { n: caseNumber(G.dailyKey) }) : tr('freeCase');
+  const sub = G.dailyKey ? `${dLabel(puz.diff)} · ${fmtDayShort(G.dailyKey)}` : dLabel(puz.diff);
+  const role = esc(getLang() === 'en' && vc.role_en ? vc.role_en : (vc.role || '').toLowerCase());
+  const el = document.createElement('div');
+  el.id = 'intro'; el.className = 'intro-bg';
+  el.innerHTML = `<div class="intro-card" role="dialog" aria-modal="true">
+    <div class="intro-av">${avatar(puz.persons[v], { dead: true })}</div>
+    <h2>${num}</h2><small>${esc(sub)}</small>
+    <p>${tr('intro', { venue: esc(puz.venue), name: esc(vc.name), role, him: tr(vc.g === 'f' ? 'her' : 'him') })}</p>
+    <button class="btn" data-act="intro-go">${tr('continue')}</button></div>`;
+  el.querySelector('[data-act=intro-go]').addEventListener('click', (e) => { e.stopPropagation(); el.remove(); U.introOpen = false; if (after) after(); });
+  $('#app').appendChild(el);
+  U.introOpen = true;
 }
 function openDaily(key, diff) {
   if (!isPlayableDay(key) || !DIFFICULTIES[diff]) return toast(tr('notAvailable'));
@@ -410,17 +431,13 @@ function renderPlayShell() {
   <div class="play">
     <div class="topbar">
       <button class="icon-btn" data-act="home" aria-label="${tr('menu')}">‹</button>
-      <div class="ttl">${num}<small>${esc(sub)}</small></div>
+      <div class="ttl" data-act="intro">${num}<small>${esc(sub)}</small></div>
       <div class="timer" id="timer"></div>
       <button class="icon-btn" data-act="hint" aria-label="${tr('hint')}">${uiImg('pista')}</button>
       <button class="icon-btn" data-act="check" aria-label="${tr('check')}">${uiImg('comprobar')}</button>
       <button class="icon-btn" data-act="howto" aria-label="${tr('help')}">?</button>
     </div>
-    <div class="casestrip">
-      <div class="vic">${avatar(puz.persons[v], { dead: true })}<span>${tr('intro', { venue: esc(puz.venue), name: esc(vc.name), role: esc(getLang() === 'en' && vc.role_en ? vc.role_en : (vc.role || '').toLowerCase()), him: tr(vc.g === 'f' ? 'her' : 'him') })}</span></div>
-    </div>
     <div class="boardwrap"><div class="board" id="board"></div></div>
-    <div class="modebar" id="modebar"></div>
     <div class="tray" id="tray"></div>
     <div class="cluehead"><b>${tr('clues')}</b><span id="clue-count"></span></div>
     <ul class="clues" id="clues"></ul>
@@ -937,6 +954,7 @@ document.addEventListener('click', (e) => {
     case 'arch-day': return openArchiveDay(el.dataset.key);
     case 'home': return goHome(false);
     case 'howto': return openHowto();
+    case 'intro': return G && openIntro();
     case 'settings': return openSettings();
     case 'fullscreen': return toggleFullscreen(false);
     case 'ios-install': return openIosInstall();
@@ -980,7 +998,7 @@ $('#sheet-bg').addEventListener('click', () => closeSheet());
 
 // cronómetro
 setInterval(() => {
-  if (!G || G.status !== 'playing' || !$('#screen-play').classList.contains('on') || document.visibilityState !== 'visible') return;
+  if (!G || G.status !== 'playing' || !$('#screen-play').classList.contains('on') || document.visibilityState !== 'visible' || U.introOpen) return;
   G.time++;
   updateTimer();
   if (++U.tick % 5 === 0) saveGame();
