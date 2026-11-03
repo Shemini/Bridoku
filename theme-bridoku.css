@@ -285,3 +285,15 @@ img.ui { width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em
 .intro-card small { display: block; color: var(--muted); letter-spacing: .04em; margin-bottom: 12px; }
 .intro-card p { margin: 0 0 16px; font-size: 16px; line-height: 1.5; }
 .intro-card b { color: #b84a72; }
+
+/* Victoria asistida (con pistas o revisiones): dorado en lugar de verde */
+.diff.assisted { background: #f2cf7a; box-shadow: var(--px), inset 0 -4px 0 0 #c9952e; }
+.diff.assisted i { color: #5e3f0c; }
+.cal-day .pips i.assisted { background: #d9a43a; box-shadow: none; }
+.assisted-note { display: inline-block; margin: 2px auto 8px; padding: 3px 8px; background: #f7e6bd; color: #7a5617; font-size: 13px; box-shadow: inset 0 0 0 2px #e0bd6a; }
+/* Acusar espera a que estén todos colocados */
+.tbtn.wait { opacity: .55; }
+.cal-day.full.assisted { background: #f2cf7a; box-shadow: var(--px2), inset 0 -3px 0 0 #c9952e; }
+/* La letra de la ficha también es un <span>: que no herede el color/tamaño del nombre de debajo */
+.chip span.badge, .pick span.badge { color: var(--fg, #fffdf6); }
+.tray .chip span.badge { font-size: min(22px, 44cqw); }

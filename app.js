@@ -35,7 +35,7 @@ function textOn(hex) {
   const h = hex.replace('#', '');
   const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
   const L = 0.2126 * lin(parseInt(h.slice(0, 2), 16)) + 0.7152 * lin(parseInt(h.slice(2, 4), 16)) + 0.0722 * lin(parseInt(h.slice(4, 6), 16));
-  return (1.05 / (L + 0.05)) >= ((L + 0.05) / 0.0728) ? '#fffdf6' : '#2d2540';
+  return (1.05 / (L + 0.05)) >= 3 ? '#fffdf6' : '#2d2540';
 }
 
 async function probeSprites() {
@@ -53,12 +53,24 @@ async function probeSprites() {
 }
 
 // ------------------------------------------------------ Piezas de interfaz
+// Colores de las fichas: en cada caso, los sospechosos reciben tonos claramente distintos
+// entre sí (y del novio), todos lo bastante oscuros para que la letra blanca se lea bien.
+const SUSPECT_COLORS = ['#1f5fbf', '#c62828', '#2e7d32', '#6a3fb5', '#c25e00', '#00796b', '#b0246e', '#795548'];
+function ccol(cid) {
+  if (G && G.puz) {
+    const i = G.puz.persons.indexOf(cid);
+    if (i === G.puz.victim) return CONTENT.charMap[cid].color;
+    if (i >= 0) return SUSPECT_COLORS[(i - (i > G.puz.victim ? 1 : 0)) % SUSPECT_COLORS.length];
+  }
+  return CONTENT.charMap[cid].color;
+}
 function avatar(cid, opts = {}) {
   const c = CONTENT.charMap[cid];
   const dead = opts.dead && has('characters', cid + '_dead');
   const id = dead ? cid + '_dead' : cid;
   if (has('characters', id)) return `<img class="av sp" src="${spUrl('characters', id)}" alt="${esc(c.name)}" draggable="false">`;
-  return `<span class="badge" style="--c:${c.color};--fg:${textOn(c.color)}">${esc(c.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')[0].toUpperCase())}</span>`;
+  const col = ccol(cid);
+  return `<span class="badge" style="--c:${col};--fg:${textOn(col)}">${esc(c.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')[0].toUpperCase())}</span>`;
 }
 function itemIcon(id) {
   const it = CONTENT.itemMap[id];
@@ -71,7 +83,7 @@ function itemIcon(id) {
 function pchip(i) {
   const c = CONTENT.charMap[G.puz.persons[i]];
   const v = i === G.puz.victim;
-  return `<b class="pc${v ? ' v' : ''}" data-act="pick" data-p="${i}" style="--c:${c.color};--fg:${textOn(c.color)}">${esc(c.name)}${v ? ' †' : ''}</b>`;
+  return `<b class="pc${v ? ' v' : ''}" data-act="pick" data-p="${i}" style="--c:${ccol(c.id)};--fg:${textOn(ccol(c.id))}">${esc(c.name)}${v ? ' †' : ''}</b>`;
 }
 function tokensHTML(tokens) {
   const puz = G.puz;
@@ -111,7 +123,7 @@ const isPlayableDay = (k) => k >= archiveStart() && k <= todayKey();
 function dayStatus(key, diff) {
   const id = dailyId(key, diff);
   const s = stats.solved[id];
-  if (s) return { state: 'solved', time: s.time, hints: s.hints };
+  if (s) return { state: s.hints || s.checks ? 'assisted' : 'solved', time: s.time, hints: s.hints };
   const g = loadGame(id);
   if (g && g.status === 'playing' && (placedCount(g) > 0 || g.time > 5)) return { state: 'playing', time: g.time };
   return { state: 'new' };
@@ -127,6 +139,7 @@ function streak() {
 }
 function statusText(st) {
   if (st.state === 'solved') return tr('stSolved', { t: fmtTime(st.time) });
+  if (st.state === 'assisted') return tr('stAssisted', { t: fmtTime(st.time) });
   if (st.state === 'playing') return tr('stPlaying', { t: fmtTime(st.time) });
   return tr('stNew');
 }
@@ -293,7 +306,7 @@ function openArchive(ym) {
     const ok = isPlayableDay(key);
     let pips = '';
     if (ok) pips = DIFF_KEYS.map((df) => `<i class="${dayStatus(key, df).state}"></i>`).join('');
-    cells += `<button class="cal-day${key === today ? ' today' : ''}${ok && daySolvedCount(key) === DIFF_KEYS.length ? ' full' : ''}" ${ok ? `data-act="arch-day" data-key="${key}"` : 'disabled'}>
+    cells += `<button class="cal-day${key === today ? ' today' : ''}${ok && daySolvedCount(key) === DIFF_KEYS.length ? (DIFF_KEYS.some((df) => dayStatus(key, df).state === 'assisted') ? ' full assisted' : ' full') : ''}" ${ok ? `data-act="arch-day" data-key="${key}"` : 'disabled'}>
       <b>${d}</b><span class="pips">${pips}</span></button>`;
   }
   openSheet(tr('archiveTitle'), `
@@ -554,7 +567,7 @@ function pencilHTML(mask) {
   G.puz.persons.forEach((cid, p) => {
     if (!(mask & (1 << p))) return;
     const c = CONTENT.charMap[cid];
-    s += `<i style="--c:${c.color};--fg:${textOn(c.color)};grid-row:${((p / 3) | 0) + 1};grid-column:${(p % 3) + 1}">${esc(c.mark)}</i>`;
+    s += `<i style="--c:${ccol(c.id)};--fg:${textOn(ccol(c.id))};grid-row:${((p / 3) | 0) + 1};grid-column:${(p % 3) + 1}">${esc(c.mark)}</i>`;
   });
   return `<div class="pm">${s}</div>`;
 }
@@ -648,7 +661,7 @@ function drawTools() {
     <button class="tbtn${U.tool === 'empty' ? ' on' : ''}" data-act="tool" data-t="empty"><i>${uiImg('vacio')}</i>${tr('tEmpty')}</button>
     <button class="tbtn${U.tool === 'erase' ? ' on' : ''}" data-act="tool" data-t="erase"><i>${uiImg('goma')}</i>${tr('tErase')}</button>
     <button class="tbtn" data-act="undo" ${G.undo.length ? '' : 'disabled'}><i>${uiImg('deshacer')}</i>${tr('tUndo')}</button>
-    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}" data-act="accuse"><i>${uiImg('lupa')}</i>${tr('tAccuse')}</button>`;
+    <button class="tbtn primary${full && G.status === 'playing' ? ' glow' : ''}${!full && G.status === 'playing' ? ' wait' : ''}" data-act="accuse"><i>${uiImg('lupa')}</i>${tr('tAccuse')}</button>`;
 }
 
 function drawClues() {
@@ -862,6 +875,8 @@ function accuseHTML() {
 }
 function openAccuse() {
   if (G.status !== 'playing') return openVictory(true);
+  const placed = G.sol.filter((p) => p >= 0);
+  if (placed.length < G.puz.N || new Set(placed).size < G.puz.N) return toast(tr('placeAllFirst'), 2600);
   U.acc = -1;
   openSheet(tr('accuseTitle'), accuseHTML());
 }
@@ -896,11 +911,12 @@ function openVictory(again) {
   const key = G.dailyKey;
   const num = key ? `${tr('caseN', { n: caseNumber(key) })} · ${fmtDayShort(key)}` : tr('freeCase');
   const nextDiff = key ? DIFF_KEYS.find((d) => d !== puz.diff && !stats.solved[dailyId(key, d)]) : null;
-  openSheet(again ? tr('closedTitle') : tr('solvedTitle'), `
+  openSheet(again ? tr('closedTitle') : (G.hints || G.checks ? tr('assistedTitle') : tr('solvedTitle')), `
   <div class="reveal">
     <div class="cast">${avatar(puz.persons[puz.murderer])}</div>
     <div class="big">${esc(tr('isMurderer', { n: pname(puz.murderer), f: CONTENT.charMap[puz.persons[puz.murderer]].g === 'f' }))}</div>
     <p>${esc(storyText())}</p>
+    ${G.hints || G.checks ? `<div class="assisted-note">${tr('assistedNote')}</div>` : ''}
     <div class="stats"><span class="tag brass">⏱ ${fmtTime(G.time)}</span><span class="tag">${tr('statHints', { n: G.hints })}</span><span class="tag">${tr('statChecks', { n: G.checks })}</span>${G.wrong ? `<span class="tag">${tr('statWrong', { n: G.wrong })}</span>` : ''}</div>
     <div class="stack">
       <button class="btn" data-act="share">${tr('share')}</button>
